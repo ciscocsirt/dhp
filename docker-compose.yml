@@ -1,0 +1,133 @@
+version: '3'
+
+networks:
+  honey_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: 1.67.67.0/24
+
+services:
+  collector:
+    image: collector:latest
+    restart: always
+    build:
+      context: .
+      dockerfile: collector_dockerfile
+      args:
+        SSH_PRV_KEY: |-
+          ${SSH_PRV_KEY}
+        SSH_PUB_KEY: |-
+          ${SSH_PUB_KEY}
+    volumes:
+      - /dev/shm:/dev/shm
+    links:
+      - mongo
+    depends_on:
+      - mongo
+    environment:
+      - "PYTHONUNBUFFERED=1"
+      - wbx=False
+      - wbx_webhook=None
+      - slack=False
+      - slack_channel=None
+      - slack_username=None
+      - slack_webhook=None
+      - slack_emoticon=":suspect:"
+      - use_mongo=False
+      - mongo_db=docker-honeypot
+      - mongo_host=
+      - mongo_port=27017
+      - mongo_user=
+      - mongo_pass=
+      - http=False
+      - http_url=
+      - http_verify_ssl=
+      - http_client_key=
+      - http_client_crt=
+      - http_server_crt=
+      - http_token=
+      - http_port=
+      - ports="2375 2376 2377 2378 4244 4243"
+      - terminate_with_error=True
+      - error_message=server error
+      - sensor_id=
+      - sensor_ip=
+    networks:
+      honey_net:
+        ipv4_address: 1.67.67.2
+    ports:
+      - "9443:9443"
+    expose:
+      - "9443"
+
+
+  mongo:
+    restart: always
+    image: mongo:latest
+    command: --smallfiles
+    networks:
+      honey_net:
+        ipv4_address: 1.67.67.4
+
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: "mongo_user"
+      MONGO_INITDB_ROOT_PASSWORD: "7bKdSHMr2VGAJ36KcJVrU4k9sZw2QAuXjJb4taKwPd83dLnW"
+
+    volumes:
+      - /srv/mongo_data/collector:/data/db
+
+  honeypot:
+    image: honeypot:latest
+    build:
+      context: .
+      dockerfile: honeypot_dockerfile
+      args:
+        SSH_PRV_KEY: |-
+          ${SSH_PRV_KEY}
+        SSH_PUB_KEY: |-
+          ${SSH_PUB_KEY}
+    environment:
+      - "PYTHONUNBUFFERED=1"
+      - wbx=True
+      - wbx_webhook=None
+      - slack=False
+      - slack_channel=None
+      - slack_username=None
+      - slack_webhook=None
+      - slack_emoticon=":suspect:"
+      - use_mongo=False
+      - mongo_db=docker-honeypot
+      - mongo_host=
+      - mongo_port=27017
+      - mongo_user=
+      - mongo_pass=
+      - http=False
+      - http_url=
+      - http_verify_ssl=
+      - http_client_key=
+      - http_client_crt=
+      - http_server_crt=
+      - http_token=
+      - http_port=
+      - ports="2375 2376 2377 2378 4244 4243"
+      - terminate_with_error=True
+      - error_message=server error
+      - sensor_id=
+      - sensor_ip=
+    networks:
+      honey_net:
+        ipv4_address: 1.67.67.5
+    ports:
+      - "2375:2375"
+      - "2376:2376"
+      - "2377:2377"
+      - "4243:4243"
+      - "4244:4244"    
+    expose:
+      - "2375"
+      - "2376"
+      - "2377"
+      - "4243"
+      - "4244"

@@ -1,0 +1,12 @@
+FROM python:3.8-buster
+
+
+WORKDIR /opt/main
+
+COPY scripts/docker_honeypot_environ.py main.py
+COPY ssl ssl
+
+RUN pip3 install -r requirements.txt
+RUN pip3 install .
+
+CMD [ "python", "main.py" ]

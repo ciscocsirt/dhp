@@ -1,0 +1,8 @@
+wheel
+mongoengine
+regex
+requests
+flask_restful
+flask
+netifaces
+quart
