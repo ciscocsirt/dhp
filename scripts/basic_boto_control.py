@@ -405,8 +405,9 @@ def setup_instance(instance, ip, region, service_config, sensor_id, key_filename
 
 def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_secret_access_key=AWS_SECRET,
                   key_path=KEY_PATH, base_key_name=BASE_KEY_NAME, sg_name=SG_NAME, recreate_keys=False, debug=False, **kargs):
+    
     instances = []
-
+    setup_threads = []
     dhp_command_kargs = {k:kargs.get(k, None) for k in COMMAND_ARGS_KEYWORDS}
     if dhp_command_kargs['ports'] is None:
         dhp_command_kargs['ports'] = " ".join([str(i) for i in PORTS])
@@ -419,7 +420,6 @@ def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_se
 
     service_config = generate_system_ctl_config(**dhp_command_kargs)
     tag_specification = configure_tags(**kargs)
-
     for k in dhp_command_kargs:
         if k in kargs:
             del kargs[k]
@@ -461,21 +461,24 @@ def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_se
             
             time.sleep(3.0)
             print("setting up {} instances in {} region".format(max_count, dc))
-            threads = []
             for instance, ip in instance_to_ip.items():
                 sensor_id = "{}:|:{}:|:{}".format(dc, ip, instance)
                 tsc = service_config.format(**{'sensor_id':sensor_id})
                 t = threading.Thread(target=setup_instance, args=(instance, ip, dc, tsc, sensor_id, key_filename))
                 t.start()
-                threads.append(t)
-
-            for t in threads:
-                t.join()
+                setup_threads.append([t, (instance, ip, dc, tsc, sensor_id, key_filename)])
 
         except:
             print("Failed to create {} instances in {} region".format(max_count, dc))
             traceback.print_exc()
             raise
+
+    print("Waiting for all setup thread to complete for each region region".format(max_count, dc))
+    for t, args in setup_threads:
+        instance, ip, dc, tsc, sensor_id, key_filename = args
+        print("[=] Waiting for {} to complete".format(sensor_id))
+        t.join()
+        print("[+] | {} completed".format(sensor_id))
 
     return instances
 
@@ -493,8 +496,10 @@ def find_relevant_instances(region, aws_access_key_id=AWS_ACCESS,
     for reservation in reservations:
         instances = reservation.get('Instances', [])
         for instance in instances:
-            tags = instance.get('Tags')
+            tags = instance.get('Tags', None)
             instance_id = instance['InstanceId']
+            if tags is None:
+                continue
             for tag in tags:
                 if tag.get('Key', '') == application_name_key and \
                    tag.get('Value', '') == application_name:
