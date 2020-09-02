@@ -61,6 +61,7 @@ import logging
 import threading
 import json
 import time
+from multiprocessing import Process
 
 AWS_ACCESS = None
 AWS_SECRET = None
@@ -96,13 +97,20 @@ REGION_TO_AMI = {
     'us-east-2':"ami-0bbe28eb2173f6167",
     'us-west-1':"ami-0dd005d3eb03f66e8",
     'us-west-2':"ami-0a634ae95e11c6f91",
-    # 'sa-east-1':None,
-    'ap-east-1':"ami-107d3e61",
+    'sa-east-1':"ami-08caf314e5abfbef4",
+    # 'ap-east-1':"ami-107d3e61",
     'ap-south-1':"ami-02b5fbc2cb28b77b8",
     'ap-southeast-1':"ami-0007cf37783ff7e10",
     'ap-southeast-2':"ami-0f87b0a4eff45d9ce",
     'ap-northeast-1':"ami-01c36f3329957b16a",
     'ap-northeast-2':"ami-05438a9ce08100b25",
+
+    "eu-north-1": "ami-0363142d8c97b94c8",
+    "eu-central-1": "ami-04932daa2567651e7",
+    "eu-west-1": "ami-07ee42ba0209b6d77",
+    "eu-west-2": "ami-04edc9c2bfcf9a772",
+    "eu-west-3": "ami-03d4fca0a9ced3d1f",
+
 }
 
 DEFAULT_REGION = 'us-east-2'
@@ -403,11 +411,46 @@ def setup_instance(instance, ip, region, service_config, sensor_id, key_filename
     print("docker-honeypot setup complete for {} @ IP addresses: {}, sensor_id: {}".format(instance, ip, sensor_id))
 
 
+def complete_setups(instances, region, service_config, aws_access_key_id, 
+                    aws_secret_access_key, key_filename, debug):
+    setup_threads = []
+    try:
+        ec2 = boto3.client('ec2', 
+                   region, 
+                   aws_access_key_id=aws_access_key_id, 
+                   aws_secret_access_key=aws_secret_access_key)
+        instance_to_ip = get_public_ips(ec2, instances)
+        completed_loading = check_for_instances_up(ec2, instances)
+        while len(completed_loading) != len(instances):
+            print("Waiting {} before recheck of {} instances".format(WAIT_TIME, len(instances)))
+            time.sleep(WAIT_TIME)
+            completed_loading = check_for_instances_up(ec2, instances)
+        
+        time.sleep(3.0)
+        print("setting up {} instances in {} region".format(len(instances), region))
+        for instance, ip in instance_to_ip.items():
+            sensor_id = "{}:|:{}:|:{}".format(region, ip, instance)
+            tsc = service_config.format(**{'sensor_id':sensor_id})
+            t = Process(target=setup_instance, args=(instance, ip, region, tsc, sensor_id, key_filename, debug))
+            t.start()
+            setup_threads.append([t, (instance, ip, region, tsc, sensor_id, key_filename)])
+
+    except:
+        print("Failed to create {} instances in {} region".format(len(instances), region))
+        traceback.print_exc()
+        raise
+    
+    for t, args in setup_threads:
+        instance, ip, dc, tsc, sensor_id, key_filename = args
+        print("[=] Waiting for {} to complete".format(sensor_id))
+        t.join()
+        print("[+] | {} completed".format(sensor_id))
+
 def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_secret_access_key=AWS_SECRET,
                   key_path=KEY_PATH, base_key_name=BASE_KEY_NAME, sg_name=SG_NAME, recreate_keys=False, debug=False, **kargs):
     
     instances = []
-    setup_threads = []
+    setup_process = []
     dhp_command_kargs = {k:kargs.get(k, None) for k in COMMAND_ARGS_KEYWORDS}
     if dhp_command_kargs['ports'] is None:
         dhp_command_kargs['ports'] = " ".join([str(i) for i in PORTS])
@@ -424,60 +467,51 @@ def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_se
         if k in kargs:
             del kargs[k]
 
-    for dc in regions:
+    for region in regions:
         try:
             
             ec2 = boto3.client('ec2', 
-                               dc, 
+                               region, 
                                aws_access_key_id=aws_access_key_id, 
                                aws_secret_access_key=aws_secret_access_key) 
 
-            ami = REGION_TO_AMI.get(dc, None)
+            ami = REGION_TO_AMI.get(region, None)
             if ami is None:
                 ami = DEFAULT_IMAGE_ID
 
-            key_name = base_key_name + '-' + dc
+            key_name = base_key_name + '-' + region
             print("setting up keypair {} for instances".format(key_name))
             key_filename = get_key_pair(ec2, key_name=key_name, key_path=key_path, recreate=recreate_keys)
 
             print("setting up security group {} for instances".format(sg_name))
             sg_id = create_security_group(ec2, sg_name)
-            print("creating {} instances in {} region".format(max_count, dc))
-            instances = create_instances(ec2, key_name, 
-                                         ImageId=ami, 
-                                         MaxCount=max_count,
-                                         TagSpecifications=tag_specification)
-            
-            print("waitng for {} instances in {} region".format(max_count, dc))
-            time.sleep(WAIT_TIME)
-            print("getting IPs for {} instances in {} region".format(max_count, dc))
-            instance_to_ip = get_public_ips(ec2, instances)
-            
-            completed_loading = check_for_instances_up(ec2, instances)
-            while len(completed_loading) != len(instances):
-                print("Waiting {} before recheck of {} instances".format(WAIT_TIME, len(instances)))
-                time.sleep(WAIT_TIME)
-                completed_loading = check_for_instances_up(ec2, instances)
-            
-            time.sleep(3.0)
-            print("setting up {} instances in {} region".format(max_count, dc))
-            for instance, ip in instance_to_ip.items():
-                sensor_id = "{}:|:{}:|:{}".format(dc, ip, instance)
-                tsc = service_config.format(**{'sensor_id':sensor_id})
-                t = threading.Thread(target=setup_instance, args=(instance, ip, dc, tsc, sensor_id, key_filename))
-                t.start()
-                setup_threads.append([t, (instance, ip, dc, tsc, sensor_id, key_filename)])
+            print("creating {} instances in {} region".format(max_count, region))
+            instances = []
+            try:
+                instances = create_instances(ec2, key_name, 
+                                             ImageId=ami, 
+                                             MaxCount=max_count,
+                                             TagSpecifications=tag_specification)
+            except:
+                print("unable to create {} instances in {} region".format(max_count, region))
+                traceback.print_exc()
+                continue
 
+            args = (instances, region, service_config, aws_access_key_id, aws_secret_access_key, key_filename, debug)
+            p = Process(target=complete_setups, args=args)
+            p.start()
+            setup_process.append([p, args])
         except:
-            print("Failed to create {} instances in {} region".format(max_count, dc))
+            print("Failed to create {} instances in {} region".format(max_count, region))
             traceback.print_exc()
-            raise
+            continue
 
-    print("Waiting for all setup thread to complete for each region region".format(max_count, dc))
-    for t, args in setup_threads:
-        instance, ip, dc, tsc, sensor_id, key_filename = args
-        print("[=] Waiting for {} to complete".format(sensor_id))
-        t.join()
+    print("Waiting for all setup thread to complete for each region region".format(max_count, region))
+    for p, args in setup_process:
+        instances, region, service_config, aws_access_key_id, aws_secret_access_key, key_filename, debug = args
+        sensor_id = "{}: {}".format(region, ",".join(instances))
+        print("[=] Waiting for {} to complete setup".format(sensor_id))
+        p.join()
         print("[+] | {} completed".format(sensor_id))
 
     return instances
@@ -574,7 +608,7 @@ if __name__ == "__main__":
         doit_defaults(**dargs)
     elif args.find:
         results = find_relevant_instances_multiple_regions(**dargs)
-        print("Found the following instances\n", "\n".join(results))
+        print("Found the following instances ({}):\n".format(len(results)), "\n".join(results))
     elif args.terminate:
         results = terminate_relevant_instances_multiple_regions(DryRun=False, **dargs)        
         print("Termination results for the following instances:\n", results)
