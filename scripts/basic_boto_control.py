@@ -296,7 +296,7 @@ def get_key_pair(ec2, key_name=BASE_KEY_NAME, key_path=KEY_PATH, recreate=False)
             print("Recreating new key: {}, deleting it from ec2".format(key_name))
             ec2.delete_key_pair(KeyName=key_name)
     except:
-        raise
+        pass
 
     try:
         os.chmod(key_filename, 0o600)
