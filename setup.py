@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python
 from setuptools import setup, find_packages
 import os
@@ -12,7 +13,9 @@ setup(name='docker-honeypot',
       description='docker honeypot used to capture attempted CREATE API calls',
       author='Adam Pridgen',
       author_email='adpridge@cisco.com',
-      install_requires=['wheel', 'quart', 'mongoengine', 'regex', 'ipython', 'flask', 'flask_restful', 'requests', 'netifaces'],
+      install_requires=['wheel', 'quart', 'mongoengine', 'regex', 
+                        'ipython', 'flask', 'flask_restful', 'requests', 
+                        'paramiko', 'boto3', 'netifaces'],
       packages=find_packages('src'),
       package_dir={'': 'src'},
 )

@@ -6,3 +6,5 @@ flask_restful
 flask
 netifaces
 quart
+paramiko
+boto
