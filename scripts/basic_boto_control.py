@@ -15,10 +15,39 @@ __copyright__ = """
     limitations under the License.
 
 """
+
+'''
+Example commands:
+
+> setup a instances in us-east-1 and us-east-2
+python3 basic_boto_control.py -setup -max_count 3 -regions us-east-1 us-east-1 \
+        -application_name "docker-honeypot" -application_name_key ApplicationName \
+        -sg_name "docker-hp"
+        -key_pair "docker-hp"
+        -aws_access_key_id AWS_ACCESS -aws_secret_access_key AWS_SECRET \
+        -slack_channel "#channel" -slack_username USERNAME \
+        -slack_webhook "WEBHOOK_URL" \
+        -wbx_webhook "WEBHOOK_URL" \
+        --tag-ApplicationName docker-honeypot \
+        --tag-CiscoMailAlias noone@cisco.com \
+        --tag-ResourceOwner noone \
+        --tag-Environment nonprod
+
+> find all instances in us-east-1 and us-east-2 for application: docker-honeypot
+python3 basic_boto_control.py -find -regions us-east-1 us-east-1 \
+        -application_name "docker-honeypot" -application_name_key ApplicationName \
+
+> terminate all instances in us-east-1 and us-east-2 for application: docker-honeypot
+python3 basic_boto_control.py -find -regions us-east-1 us-east-1 \
+        -application_name "docker-honeypot" -application_name_key ApplicationName \
+
+
+
+
+'''
 __license__ = "Apache 2.0"
 
 import argparse
-import args
 import os
 import io
 import scp
@@ -46,7 +75,7 @@ APPLICATION_NAME_KEY = 'ApplicationName'
 
 TAGS = [('DataClassification', 'None'), 
         ('MailAlias', 'noone@nowhere.org'), 
-        ('Name', 'None') 
+        ('Name', 'None'), 
         ('ApplicationName', APPLICATION_NAME), 
         ('ResourceOwner', 'None'),
         ('Environment', 'None')
@@ -75,7 +104,7 @@ DEFAULT_REGION = 'us-east-2'
 DEFAULT_IMAGE_ID = REGION_TO_AMI[DEFAULT_REGION]
 DCS = list(REGION_TO_AMI.keys())
 
-
+HTTP_VERIFY_SSL = False
 INIT_COMMANDS = ['sudo apt update && sudo apt install -y python3-pip git',
                  'sudo apt update && sudo apt install -y python3-pip git',
                  'git clone https://github.com/ciscocsirt/dhp && cd dhp && pip3 install .'
@@ -152,9 +181,9 @@ parser.add_argument("-terminate", help="terminate all relevant instances based o
 parser.add_argument("-loglvl", help="logging level", default=logging.INFO)
 parser.add_argument("-application_name", help="application name", default=APPLICATION_NAME)
 parser.add_argument("-application_name_key", help="application name", default=APPLICATION_NAME_KEY)
-parser.add_argument("-regions", help="regions to create honeypots in", default=[DEFAULT_REGION])
+parser.add_argument("-regions", help="regions to create honeypots in", nargs="+", default=[DEFAULT_REGION])
 parser.add_argument("-ami", help="specific AMI to use in a single region", default=None)
-parser.add_argument("-sg", help="Base security group name to use and create if not present", default=SG_NAME)
+parser.add_argument("-sg_name", help="Base security group name to use and create if not present", default=SG_NAME)
 parser.add_argument("-key_name", help="Base keypair name to use and create if not present", default=BASE_KEY_NAME)
 parser.add_argument("-key_path", help="Base keypair path, where keys are read from", default=KEY_PATH)
 parser.add_argument("-max_count", help="Base keypair path, where keys are read from", default=KEY_PATH)
@@ -188,7 +217,7 @@ def configure_tags(*extra_args, **kargs):
     for k,v in zip(extra_args[::2],extra_args[1::2]):        
         key = None
         if k.startswith(TAG_MARKER):
-            key = [len(TAG_MARKER):]
+            key = k[len(TAG_MARKER):]
         else:
             continue
         key = key.replace('-','_')
@@ -483,8 +512,7 @@ def terminate_relevant_instances_multiple_regions(regions=DCS, aws_access_key_id
 
 
 if __name__ == "__main__":
-    args, extra_args = 
-    args, extras = parser.parse_known_args()
+    args, extra_args = parser.parse_known_args()
     dargs = vars(args)
 
     if dargs["setup"]:
