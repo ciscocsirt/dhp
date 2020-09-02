@@ -1,3 +1,5 @@
+boto_config.json
+ssh_keys/
 dhp_env/
 internal_notes/
 ssl/

@@ -1,0 +1,21 @@
+{
+    "ApplicationName": "docker-honeypot",
+    "MailAlias": "",
+    "DataClassification": "None",
+    "Environment": "",
+    "max_count": 3,
+    "Name": "docker-honeypot",
+    "ResourceOwner": "you",
+    "aws_access_key_id": "",
+    "aws_secret_access_key": "",
+    "base_key_name": "docker-honeypot-key",
+    "key_path": "./ssh_keys/",
+    "recreate_keys": false,
+    "regions": [
+        "us-east-2"
+    ],
+    "slack_channel": "#slack-channel",
+    "slack_username": "slack-user",
+    "slack_webhook": "https://hooks.slack.com/services/",
+    "wbx_webhook": "https://webexapis.com/v1/webhooks/incoming/"
+}

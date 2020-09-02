@@ -33,6 +33,9 @@ python3 basic_boto_control.py -setup -max_count 3 -regions us-east-1 us-east-1 \
         --tag-ResourceOwner noone \
         --tag-Environment nonprod
 
+> setup a instances in us-east-1 and us-east-2
+python3 basic_boto_control.py -setup -config boto_config.json
+
 > find all instances in us-east-1 and us-east-2 for application: docker-honeypot
 python3 basic_boto_control.py -find -regions us-east-1 us-east-1 \
         -application_name "docker-honeypot" -application_name_key ApplicationName \
@@ -47,6 +50,7 @@ python3 basic_boto_control.py -find -regions us-east-1 us-east-1 \
 '''
 __license__ = "Apache 2.0"
 
+import traceback
 import argparse
 import os
 import io
@@ -55,7 +59,8 @@ import paramiko
 import boto3
 import logging
 import threading
-
+import json
+import time
 
 AWS_ACCESS = None
 AWS_SECRET = None
@@ -109,6 +114,15 @@ INIT_COMMANDS = ['sudo apt update && sudo apt install -y python3-pip git',
                  'sudo apt update && sudo apt install -y python3-pip git',
                  'git clone https://github.com/ciscocsirt/dhp && cd dhp && pip3 install .'
                 ]
+
+SYSTEMCTL_COMMANDS = [
+    'sudo cp docker_honeypot.service /lib/systemd/system/',
+    'sudo chmod 644 /lib/systemd/system/docker_honeypot.service',
+    'sudo systemctl daemon-reload',
+    'sudo systemctl enable docker_honeypot.service',
+    'sudo systemctl start docker_honeypot.service',
+    'sudo systemctl status docker_honeypot.service'
+]
 
 SG_NAME = 'docker-honeypot'
 SECURITY_GROUPS = [SG_NAME] 
@@ -178,6 +192,7 @@ parser.add_argument("-setup", help="setup instances", default=False, action="sto
 parser.add_argument("-find", help="find all relevant instances based on application name", default=False, action="store_true")
 parser.add_argument("-terminate", help="terminate all relevant instances based on application name", default=False, action="store_true")
 
+parser.add_argument("-recreate_keys", help="recreate keys if they already exist", default=False, action="store_true")
 parser.add_argument("-loglvl", help="logging level", default=logging.INFO)
 parser.add_argument("-application_name", help="application name", default=APPLICATION_NAME)
 parser.add_argument("-application_name_key", help="application name", default=APPLICATION_NAME_KEY)
@@ -187,6 +202,8 @@ parser.add_argument("-sg_name", help="Base security group name to use and create
 parser.add_argument("-key_name", help="Base keypair name to use and create if not present", default=BASE_KEY_NAME)
 parser.add_argument("-key_path", help="Base keypair path, where keys are read from", default=KEY_PATH)
 parser.add_argument("-max_count", help="Base keypair path, where keys are read from", default=KEY_PATH)
+
+parser.add_argument("-config", help="json config to load from", default=None)
 
 
 parser.add_argument("-aws_access_key_id", help="AWS access key", default=AWS_ACCESS)
@@ -210,10 +227,8 @@ parser.add_argument("-slack_emoticon", help="slack emoticon to use", default=":s
 parser.add_argument("-wbx", help="notify about attempt", action='store_true', default=False)
 parser.add_argument("-wbx_webhook", help="webhook url", default=None, type=str)
 
-
-def configure_tags(*extra_args, **kargs):
-    tags = DEFAULT_TAG_VALUES.copy()
-
+def create_tags_keywords(*extra_args):
+    tags = {}
     for k,v in zip(extra_args[::2],extra_args[1::2]):        
         key = None
         if k.startswith(TAG_MARKER):
@@ -221,6 +236,12 @@ def configure_tags(*extra_args, **kargs):
         else:
             continue
         key = key.replace('-','_')
+        tags[key] = v
+    return tags
+
+def configure_tags(**kargs):
+    tags = DEFAULT_TAG_VALUES.copy()
+
 
     for k, v in kargs.items():
         tags[k] = v
@@ -237,7 +258,7 @@ def generate_system_ctl_config(ports=PORTS, terminate_with_error=True,
                                http_verify_ssl=False, http_url=None, http_token=None):
 
     config_args = {
-        'ports': PORTS,
+        'ports': " ".join(ports) if isinstance(ports, list) else ports,
         # this gets populated later
         'sensor_id': '"{sensor_id}"'
     }
@@ -260,6 +281,7 @@ def generate_system_ctl_config(ports=PORTS, terminate_with_error=True,
         config_args['http_token'] = '"{}"'.format(http_token)
         config_args['http_url'] = '"{}"'.format(http_url)
 
+
     the_args = ' '.join([" -"+k+' '+v for k, v in config_args.items()])
     return SERVICE_CONFIG.format(the_args)
 
@@ -270,15 +292,25 @@ def get_key_pair(ec2, key_name=BASE_KEY_NAME, key_path=KEY_PATH, recreate=False)
         ec2.describe_key_pairs(KeyNames=[key_name])
         if os.path.exists(key_path) and not recreate:
             return key_filename
+        elif recreate:
+            print("Recreating new key: {}, deleting it from ec2".format(key_name))
+            ec2.delete_key_pair(KeyName=key_name)
     except:
-        pass
+        raise
 
-    print("Unable to find keys, creating new key: {}, writing to: {}".format(key_name, key_path)) 
+    try:
+        os.chmod(key_filename, 0o600)
+        os.remove(key_filename)
+        print("removed old key: {}, before recreating it".format(key_path))
+    except:
+        print("Unable to find keys, creating new key: {}, writing to: {}".format(key_name, key_path))
 
     outfile = open(key_filename,'w')
     key_pair = ec2.create_key_pair(KeyName=key_name)
     KeyPairOut = str(key_pair['KeyMaterial'])
     outfile.write(KeyPairOut)
+    outfile.close()
+    os.chmod(key_filename, 0o600)
     return key_filename
 
 def create_security_group(ec2, sg_name=SG_NAME, sg_description=SG_DESCRIPTION, ingress=SG_IN_IP_PERMISSIONS):
@@ -329,7 +361,7 @@ def check_for_instances_up(ec2, instances):
         if status['SystemStatus']['Status'] != 'ok':
             continue
 
-        print ("Instance appears to have completed loading", instance, statuses)
+        print ("Instance appears to have completed loading:", instance_id)
         instances_completed_loading.append(instance_id)
     return instances_completed_loading
 
@@ -344,41 +376,49 @@ def get_public_ips(ec2, instances):
     print("Got {} instances IP addresses".format(len(instances)))
     return instance_to_ip    
 
-def setup_instance(instance, ip, region, service_config, key_filename, username=UBUNTU):
+def setup_instance(instance, ip, region, service_config, sensor_id, key_filename, debug=False, username=UBUNTU):
     print("Setting up {} @ IP addresses: {}".format(instance, ip))
-    sensor_id = "{}:|:{}:|:{}".format(region, ip, instance)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(ip, username=UBUNTU, key_filename=KEYFILE)
+    client.connect(ip, username=username, key_filename=key_filename)
     for cmd in INIT_COMMANDS:
         stdin, stdout, stderr = client.exec_command(cmd)
-        print(stdout.read())
+        out = stdout.read()
+        if debug:
+            print(out)
 
     print("executed set up commands for {} @ IP addresses: {}".format(instance, ip))
     stdout.read()
     scp_client = scp.SCPClient(client.get_transport())
     print("scp'ing the systemctl file for {} @ IP addresses: {}, sensor_id: {}".format(instance, ip, sensor_id))
-    new_file = io.BytesIO(service_config.format(**{'sensor_id':sensor_id}).encode('ascii'))
+    new_file = io.BytesIO(service_config.encode('ascii'))
     scp_client.putfo(new_file, './docker_honeypot.service')
-    client.exec_command('sudo cp docker_honeypot.service /lib/systemd/system/')
-    client.exec_command('sudo chmod 644 /lib/systemd/system/docker_honeypot.service')
-    client.exec_command('sudo systemctl daemon-reload')
-    client.exec_command('sudo systemctl enable docker_honeypot.service')
-    client.exec_command('sudo systemctl start docker_honeypot.service')
-    stdin, stdout, stderr = client.exec_command('sudo systemctl status docker_honeypot.service')
-    print(stdout.read())
+
+    print("setting up docker-honeypot service using systemctl for {} @ IP addresses: {}, sensor_id: {}".format(instance, ip, sensor_id))
+    for cmd in SYSTEMCTL_COMMANDS:
+        stdin, stdout, stderr = client.exec_command(cmd)
+        out = stdout.read()
+        if debug:
+            print(out)
+    print("docker-honeypot setup complete for {} @ IP addresses: {}, sensor_id: {}".format(instance, ip, sensor_id))
 
 
 def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_secret_access_key=AWS_SECRET,
-                  key_path=KEY_PATH, base_key_name=BASE_KEY_NAME, sg_name=SG_NAME, *extra_args, **kargs):
+                  key_path=KEY_PATH, base_key_name=BASE_KEY_NAME, sg_name=SG_NAME, recreate_keys=False, debug=False, **kargs):
     instances = []
 
     dhp_command_kargs = {k:kargs.get(k, None) for k in COMMAND_ARGS_KEYWORDS}
     if dhp_command_kargs['ports'] is None:
-        dhp_command_kargs['ports'] = PORTS
+        dhp_command_kargs['ports'] = " ".join([str(i) for i in PORTS])
+    else:
+        dhp_command_kargs['ports'] = " ".join([str(i) for i in kargs['ports']])
+    dhp_command_kargs['terminate_with_error'] = ''
+    for k, v in list(dhp_command_kargs.items()):
+        if v is None:
+            del dhp_command_kargs[k]
 
     service_config = generate_system_ctl_config(**dhp_command_kargs)
-    tag_specification = configure_tags(*extra_args, **kargs)
+    tag_specification = configure_tags(**kargs)
 
     for k in dhp_command_kargs:
         if k in kargs:
@@ -398,19 +438,19 @@ def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_se
 
             key_name = base_key_name + '-' + dc
             print("setting up keypair {} for instances".format(key_name))
-            key_filename = get_key_pair(ec2, key_name)
+            key_filename = get_key_pair(ec2, key_name=key_name, key_path=key_path, recreate=recreate_keys)
 
             print("setting up security group {} for instances".format(sg_name))
             sg_id = create_security_group(ec2, sg_name)
-            print("creating {} instances in {} region".format(MaxCount, dc))
+            print("creating {} instances in {} region".format(max_count, dc))
             instances = create_instances(ec2, key_name, 
                                          ImageId=ami, 
                                          MaxCount=max_count,
                                          TagSpecifications=tag_specification)
             
-            print("waitng for {} instances in {} region".format(MaxCount, dc))
+            print("waitng for {} instances in {} region".format(max_count, dc))
             time.sleep(WAIT_TIME)
-            print("getting IPs for {} instances in {} region".format(MaxCount, dc))
+            print("getting IPs for {} instances in {} region".format(max_count, dc))
             instance_to_ip = get_public_ips(ec2, instances)
             
             completed_loading = check_for_instances_up(ec2, instances)
@@ -420,10 +460,12 @@ def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_se
                 completed_loading = check_for_instances_up(ec2, instances)
             
             time.sleep(3.0)
-            print("setting up {} instances in {} region".format(MaxCount, dc))
+            print("setting up {} instances in {} region".format(max_count, dc))
             threads = []
             for instance, ip in instance_to_ip.items():
-                t = threading.Thread(target=setup_instance, args=(instance, ip, dc, service_config, key_filename))
+                sensor_id = "{}:|:{}:|:{}".format(dc, ip, instance)
+                tsc = service_config.format(**{'sensor_id':sensor_id})
+                t = threading.Thread(target=setup_instance, args=(instance, ip, dc, tsc, sensor_id, key_filename))
                 t.start()
                 threads.append(t)
 
@@ -431,7 +473,8 @@ def doit_defaults(max_count=3, regions=DCS, aws_access_key_id=AWS_ACCESS, aws_se
                 t.join()
 
         except:
-            print("Failed to create {} instances in {} region".format(MaxCount, dc))
+            print("Failed to create {} instances in {} region".format(max_count, dc))
+            traceback.print_exc()
             raise
 
     return instances
@@ -477,7 +520,8 @@ def terminate_relevant_instances(region, aws_access_key_id=AWS_ACCESS,
                             aws_secret_access_key=AWS_SECRET,
                             application_name=APPLICATION_NAME,
                             application_name_key=APPLICATION_NAME_KEY,
-                            instances: list =None, DryRun=True):
+                            instances: list =None, 
+                            DryRun=True):
     if instances is None:
         instances = []
 
@@ -486,10 +530,11 @@ def terminate_relevant_instances(region, aws_access_key_id=AWS_ACCESS,
                    aws_access_key_id=aws_access_key_id, 
                    aws_secret_access_key=aws_secret_access_key)
 
-    instances = instances + find_relevant_instances(region, aws_access_key_id=AWS_ACCESS, 
-                            aws_secret_access_key=AWS_SECRET,
-                            application_name=APPLICATION_NAME,
-                            application_name_key=APPLICATION_NAME_KEY)
+    instances = instances + find_relevant_instances(region, 
+                                                    aws_access_key_id=aws_access_key_id, 
+                                                    aws_secret_access_key=aws_secret_access_key,
+                                                    application_name=application_name,
+                                                    application_name_key=application_name_key)
     if len(instances) == 0:
         return instances
     return ec2.terminate_instances(DryRun=DryRun, InstanceIds=instances)
@@ -514,12 +559,17 @@ def terminate_relevant_instances_multiple_regions(regions=DCS, aws_access_key_id
 if __name__ == "__main__":
     args, extra_args = parser.parse_known_args()
     dargs = vars(args)
-
-    if dargs["setup"]:
-        doit_defaults(*extras, **dargs)
-    elif dargs["find"]:
+    
+    if args.config is not None:
+        dargs = json.load(open(args.config))
+    
+    tags = create_tags_keywords(*extra_args)
+    dargs.update(tags)
+    if args.setup:
+        doit_defaults(**dargs)
+    elif args.find:
         results = find_relevant_instances_multiple_regions(**dargs)
-        print("Found the following instances", "\n".join(results))
-    elif dargs["terminate"]:
-        results = terminate_relevant_instances_multiple_regions(**dargs)        
-        print("Termination results for the following instances:", results)
+        print("Found the following instances\n", "\n".join(results))
+    elif args.terminate:
+        results = terminate_relevant_instances_multiple_regions(DryRun=False, **dargs)        
+        print("Termination results for the following instances:\n", results)
