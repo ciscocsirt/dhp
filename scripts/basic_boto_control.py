@@ -173,11 +173,10 @@ Description=docker-honey pot service
 After=syslog.target
 
 [Service]
-Type=forking
+Type=simple
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/dhp
-PIDFile=/var/run/dhp.pid
 ExecStart=/usr/bin/python3 /home/ubuntu/dhp/scripts/docker_honeypot.py {}
 
 [Install]
