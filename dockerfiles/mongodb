@@ -1,0 +1,5 @@
+FROM mongo:latest
+
+RUN mkdir -p /data/ssl/
+ADD ssl/mongodb.pem /data/ssl/mongodb.pem
+ADD ssl/ca-dockerhp-collector.crt /data/ssl/mongodb-cert.crt

@@ -8,3 +8,7 @@ netifaces
 quart
 paramiko
 boto
+scp
+hypercorn
+rfc3987
+validator-collection

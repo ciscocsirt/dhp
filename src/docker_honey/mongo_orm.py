@@ -25,14 +25,28 @@ class RegisteredSensor(Document):
     sensor_ip = StringField(required=True)
     token = StringField(required=True)
     created_at = StringField(required=True)
-    received_at = BooleanField(required=True)
+    received_at = StringField(required=True)
+    last_ping = StringField(required=True)
+
+class TokenInfo(Document):
+    creator_token = StringField(required=True)
+    token = StringField(required=True)
+    email = StringField(required=True)
+    name = StringField(required=True)
+    description = StringField(required=True)
+    is_admin = BooleanField(required=True)
+    is_active = BooleanField(required=True)
+    created_at = StringField(required=True)
+    modified_at = StringField(required=True)
+    last_used = StringField(required=True)
+
 
 class PingSensor(Document):
     sensor_id = StringField(required=True)
     sensor_ip = StringField(required=True)
     token = StringField(required=True)
     created_at = StringField(required=True)
-    received_at = BooleanField(required=True)
+    received_at = StringField(required=True)
 
 
 class GeneralEvent(Document):
@@ -49,6 +63,16 @@ class GeneralEvent(Document):
     request_data = DictField()
     api = StringField(required=True)
     sent = BooleanField(required=True)
+    event_id = StringField(required=True)
+
+class RequestResultEvent(Document):
+    sensor_id = StringField(required=True)
+    sensor_ip = StringField(required=True)
+    created_at = StringField(required=True)
+    received_at = StringField(required=True)
+    response_info = DictField()
+    request_parameters = DictField()
+    result_id = StringField(required=True)
 
 class CreateEvent(Document):
     src_ip = StringField(required=True)
@@ -58,3 +82,4 @@ class CreateEvent(Document):
     created_at = StringField(required=True)
     command = StringField(required=True)
     image = StringField(required=True)
+    event_id = StringField(required=True)

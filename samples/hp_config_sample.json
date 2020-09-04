@@ -1,0 +1,51 @@
+{
+
+    "ports": [2375, 2376, 2377, 4243, 4244],
+    "terminate_with_error": true,
+    "sensor_id": null,
+    "certs_path": "./ssl/",
+    
+    "server_secret_key": null,
+    "global_hostname": null,
+    "global_port": 61023,
+
+    "collector": true,
+    "collector_alt_host": null,
+    "collector_alt_port": 5001,
+    "collector_host": null,
+    "collector_port": 5000,
+    "collector_verify_ssl": false,
+    "collector_crt": "collector-cert.pem",
+    "collector_key": "collector-key.pem",
+    "collector_ca_crt": "ca-dockerhp-collector.crt",
+    "collector_ca_name": "ca-dockerhp-collector",
+    "collector_common_name": "dockerhp-collector",
+    "collector_token": null,
+    "honeypot_tokens": null,
+
+    "dockerhp_listen": true,
+    "dockerhp_host": "0.0.0.0",
+    "dockerhp_port": 61023,
+    "dockerhp_verify_ssl": false,
+    "dockerhp_crt": "dockerhp-cert.pem",
+    "dockerhp_key": "dockerhp-key.pem",
+    "dockerhp_ca_crt": "ca-dockerhp-collector.crt",
+    "dockerhp_ca_name": "ca-dockerhp-collector",
+    "dockerhp_common_name": "dockerhp",
+
+    "mongo": false,
+    "mongo_db": "docker_honeypot",
+    "mongo_ssl": true,
+    "mongo_host": "127.0.0.1",
+    "mongo_port": 27127,
+    "mongo_user": "mongo_user",
+    "mongo_pass": null,
+    
+    "slack": false,
+    "slack_channel": "#tw-threat-intel",
+    "slack_username": "docker-hp",
+    "slack_webhook": null,
+    
+    "wbx": false,
+    "wbx_webhook": null
+}
