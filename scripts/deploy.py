@@ -261,6 +261,12 @@ def deploy_dockerhp(args, boto_config, boto_secrets):
     for region in regions:
         dc_ai = rdc_ai[region]
         dc_ipi = rdc_ipi[region]
+        if dc_ipi is None:
+            LOGGER.critical("Public IP information is None, meaning an error occurred somewhere, skipping: {}".format(region))
+            continue
+        if dc_ai is None:
+            LOGGER.critical("Instance information is None, meaning an error occurred somewhere, skipping: {}".format(region))
+            continue
         results[region] = handle_dockerhp_config_update_and_start(instance_name, region, base_config, dc_ai, dc_ipi, dc_command_format_args, boto_config)
     return results
 

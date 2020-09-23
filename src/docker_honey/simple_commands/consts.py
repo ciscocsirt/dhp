@@ -46,26 +46,32 @@ DOCKER_SETUP_COMMANDS = [
 IPIFY_URL = "https://api.ipify.org/?format=json"
 
 REGION_TO_AMI = {
-    'us-east-1':"ami-0bcc094591f354be2",
-    'us-east-2':"ami-0bbe28eb2173f6167",
-    'us-west-1':"ami-0dd005d3eb03f66e8",
-    'us-west-2':"ami-0a634ae95e11c6f91",
-    'sa-east-1':"ami-08caf314e5abfbef4",
+    'us-east-1':"",
+    'us-east-2':"",
+    'us-west-1':"",
+    'us-west-2':"",
+    'sa-east-1':"",
     # 'ap-east-1':"ami-107d3e61",
-    'ap-south-1':"ami-02b5fbc2cb28b77b8",
-    'ap-southeast-1':"ami-0007cf37783ff7e10",
-    'ap-southeast-2':"ami-0f87b0a4eff45d9ce",
-    'ap-northeast-1':"ami-01c36f3329957b16a",
-    'ap-northeast-2':"ami-05438a9ce08100b25",
+    'ap-south-1':"",
+    'ap-southeast-1':"",
+    'ap-southeast-2':"",
+    'ap-northeast-1':"",
+    'ap-northeast-2':"",
 
-    "eu-north-1": "ami-0363142d8c97b94c8",
-    "eu-central-1": "ami-04932daa2567651e7",
-    "eu-west-1": "ami-07ee42ba0209b6d77",
-    "eu-west-2": "ami-04edc9c2bfcf9a772",
-    "eu-west-3": "ami-03d4fca0a9ced3d1f",
+    "eu-north-1": "",
+    "eu-central-1": "",
+    "eu-west-1": "",
+    "eu-west-2": "",
+    "eu-west-3": "",
 
 }
 
 DEFAULT_REGION = 'us-east-2'
-DEFAULT_IMAGE_ID = REGION_TO_AMI[DEFAULT_REGION]
 DCS = list(REGION_TO_AMI.keys())
+
+MATCH_KEYS = [
+    'image_architecture',
+    'image_owner_alias',
+    'image_owner_id',
+    'image_virtualization_type',
+]

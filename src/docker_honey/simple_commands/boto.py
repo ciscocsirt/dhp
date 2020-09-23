@@ -27,24 +27,143 @@ import time
 class Commands(object):
     AWS_SECRET_ACCESS_KEY = None
     AWS_ACCESS_KEY_ID = None
-    DEFAULT_REGION='us-east-2'
-    DEFAULT_KMS_ID = None
-    DEFAULT_KMS_ALIAS = None
-    DEFAULT_KMS_ARN = None
-    REGIONS = [DEFAULT_REGION]
+    CURRENT_REGION = 'us-east-2'
+
+    KMS_KEYS = {}
+    KMS_ARNS = {}
+    KMS_INFOS = {}
+    KMS_ALIASES = {}
+
+    DEFAULT_KMS_IDS = {}
+    DEFAULT_KMS_ALIASES = {}
+    DEFAULT_KMS_ARNS = {}
+    REGIONS = [CURRENT_REGION]
     LOGGER = get_stream_logger(__name__ + '.Commands')
+    IMAGE_CATALOG = {}
+    IMAGE_AMI_IDS = {}
+    IMAGE_AMI_NAMES = {}
 
     @classmethod
-    def get_image_id(cls, instance_name, region, boto_config):
+    def get_image_infos(cls, region, **kargs):
+        cls.set_region(region)
+        if region in cls.IMAGE_CATALOG:
+            return cls.IMAGE_CATALOG[region]
+
+        ec2 = cls.get_ec2(**kargs)
+        cls.LOGGER.info("Getting Instance info {}".format(region))
+        rsp = ec2.describe_images()
+        cls.IMAGE_CATALOG[region] = []
+        image_datas = rsp['Images']
+        for image_data in image_datas:
+            image_info = {
+                "image_architecture": image_data.get('Architecture', '').lower(),
+                "image_platform_details": image_data.get('PlatformDetails', '').lower(),
+                "image_public": image_data.get('Public', False),
+                "image_name": image_data.get('Name', '').lower(),
+                "image_type": image_data.get('ImageType', '').lower(),
+                "image_description": image_data.get('Description', '').lower(),
+                "image_id": image_data.get('ImageId', '').lower(),
+                "image_state": image_data.get('State', '').lower(),
+                "image_block_mappings": image_data.get('BlockDeviceMappings', []),
+                "image_owner_alias": image_data.get('ImageOwnerAlias', '').lower(),
+                "image_creation_date": image_data.get('CreationDate', ''),
+                "image_owner_id": image_data.get('OwnerId', '').lower(),
+                "image_virtualization_type": image_data.get('VirtualizationType', '').lower(),
+            }
+            cls.IMAGE_CATALOG[region].append(image_info)
+        cls.IMAGE_AMI_IDS[region] = {i['image_id']:i for i in cls.IMAGE_CATALOG[region]}
+        cls.IMAGE_AMI_NAMES[region] = {i['image_name']:i for i in cls.IMAGE_CATALOG[region]}
+        return sorted(cls.IMAGE_AMI_NAMES[region].values(), reverse=True, key=lambda x:x["image_creation_date"])
+
+    @classmethod
+    def extract_ami_paramaters(cls, instance_config):
+        parameters = {
+            "image_architecture": instance_config.get('image_architecture', None),
+            "image_platform_details": instance_config.get('platform_details', None),
+            "image_public": instance_config.get('image_public', True),
+            "image_name": instance_config.get('image_name', None),
+            "image_image_type": instance_config.get('image_type', None),
+            "image_description_keywords": instance_config.get('image_description_keywords', None),
+            "image_image_id": instance_config.get('image_id', None),
+            "image_owner_alias": instance_config.get('image_owner_alias', None),
+            "image_owner_id": instance_config.get('image_owner_id', None),
+            "image_virtualization_type": instance_config.get('image_virtualization_type', "hvm"),
+        }
+        if isinstance(parameters["image_description_keywords"], list) and len(parameters["image_description_keywords"]) > 0:
+            parameters["image_description_keywords"] = [i.lower() for i in parameters["image_description_keywords"]] 
+        else:
+            parameters["image_description_keywords"] = None
+        return {k:v if not isinstance(v, str) else v.lower() for k, v in parameters.items() if v is not None or (isinstance(v, str) and len(v) > 0)}
+
+    @classmethod
+    def match_description(cls, keywords, description, any_words=False):
+        if any_words:
+            return any([description.find(w) > -1 for w in keywords])
+        return all([description.find(w) > -1 for w in keywords])
+
+    @classmethod
+    def find_matching_images(cls, ami_info, image_infos, match_keys=MATCH_KEYS, 
+                             match_desc=True):
+
+        match_these = {k: ami_info[k] for k in match_keys if k in ami_info and ami_info[k] is not None}
+        keywords = ami_info.get('image_description_keywords', None)
+        if keywords is None and match_desc:
+            cls.LOGGER.critical("No keyword provided to match a AMI".format())
+            raise Exception("No keyword provided to match a AMI".format())
+
+        others_good = []
+        for amii in image_infos:
+            desc = amii.get('image_description', '')
+            if (desc is None or len(desc) == 0) and match_desc:
+                continue
+
+            all_matches = []
+            for k in match_these:
+                if amii.get(k, None) is None:
+                    continue
+                all_matches.append(match_these[k] == amii[k])
+
+            if all(all_matches):
+                others_good.append(amii)
+        
+        if not match_desc:
+            return [i['image_id'] for i in others_good]
+
+        good_desc = []
+        for ii in others_good:
+            desc = ii.get('image_description', '')
+            if cls.match_description(keywords, desc):
+                good_desc.append(ii)
+
+        return [i['image_id'] for i in good_desc]
+    
+    @classmethod
+    def get_image_id(cls, instance_name, region, boto_config, any_words=False, return_one=True):
+        cls.set_region(region)
         instance_description = cls.get_instance_description(instance_name, boto_config)
-        ami_id = instance_description.get('ami_id', None)
-        ami_region = instance_description.get('ami_region', None)
-        if ami_id and ami_region and ami_region == region:
+        ami_info = cls.extract_ami_paramaters(instance_description)
+        ami_id = ami_info.get('image_id', None)
+        ami_name = ami_info.get('image_name', None)
+
+        ami_id = ami_id if isinstance(ami_id, str) and len(ami_id) > 0 else None
+        ami_name = ami_name if isinstance(ami_name, str) and len(ami_name) > 0 else None
+        if ami_name is not None and ami_name in cls.IMAGE_AMI_NAMES[region]:
+            ami_id = cls.IMAGE_AMI_NAMES[region]['image_id']
+
+        if ami_id is not None and ami_id in cls.IMAGE_AMI_IDS[region]:
+            cls.LOGGER.info("Using AMI image Id ({}) in {}".format(ami_id, ami_region))
             return ami_id
-        region_to_ami = boto_config.get('region_to_ami', {})
-        if region in region_to_ami:
-            return region_to_ami[region]
-        return None
+            
+        image_infos = cls.get_image_infos(region, **boto_config)
+        keywords = ami_info.get('image_description_keywords', None)
+        matching_images = cls.find_matching_images(ami_info, image_infos)
+
+        if len(matching_images) > 0 and return_one:
+            return matching_images[0]
+        elif len(matching_images) > 0:
+            return matching_images
+        cls.LOGGER.critical("Unable to identify an AMI image Id in {}".format(region))
+        raise Exception("Unable to identify an AMI image Id in {}".format(region))
 
     @classmethod
     def get_instance_type(cls, instance_name, boto_config):
@@ -204,9 +323,8 @@ class Commands(object):
         cls.AWS_ACCESS_KEY_ID = kargs.get('aws_access_key_id', None)
         cls.AWS_SECRET_ACCESS_KEY= kargs.get('aws_secret_access_key', None)
         cls.REGIONS = kargs.get('regions', cls.REGIONS) 
-        cls.DEFAULT_KMS_ID = kargs.get('aws_key_id', None)
-        cls.DEFAULT_KMS_ALIAS = kargs.get('aws_key_alias', None)
-        cls.init_kms_defaults(**kargs)
+        cls.REGIONS = kargs.get('regions', cls.REGIONS) 
+        # cls.update_current_kms_defaults(**kargs)
 
     @classmethod
     def create_tags_keywords(cls, *extra_args):
@@ -222,7 +340,27 @@ class Commands(object):
         return tags
 
     @classmethod
-    def get_ec2(cls, ec2=None, region=DEFAULT_REGION, aws_secret_access_key=None, aws_access_key_id=None, **kargs):
+    def set_region(cls, region, **kargs):
+        if region is not None and region != cls.CURRENT_REGION:
+            cls.CURRENT_REGION = region
+
+    @classmethod
+    def get_region(cls):
+        return cls.CURRENT_REGION
+
+    @classmethod
+    def get_current_region(cls):
+        return cls.CURRENT_REGION        
+
+
+    @classmethod
+    def get_ec2(cls, ec2=None, region=None, aws_secret_access_key=None, aws_access_key_id=None, **kargs):
+        if region:
+            cls.set_region(region)
+        else:
+            region = cls.get_current_region()
+
+
         if ec2 is None:
             # cls.LOGGER.debug("Creating ec2 client for {} in {}".format(region, aws_access_key_id))
             aws_secret_access_key = aws_secret_access_key if aws_secret_access_key else cls.AWS_SECRET_ACCESS_KEY
@@ -234,62 +372,69 @@ class Commands(object):
         return ec2
 
     @classmethod
-    def get_kws_key(cls, kms=None, region=DEFAULT_REGION, aws_secret_access_key=None, aws_access_key_id=None,
+    def get_kms_key(cls, kms=None, region=None, aws_secret_access_key=None, aws_access_key_id=None,
                     key_name=None, key_id=None, **kargs):
 
         if key_name is None and key_id is None:
-            if cls.DEFAULT_KMS_ID:
-                return cls.DEFAULT_KMS_ID
+            if cls.DEFAULT_KMS_IDS[region]:
+                return cls.DEFAULT_KMS_IDS[region]
 
             kms = cls.get_kms(region=region, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
         return kms
 
     @classmethod
-    def init_kms_defaults(cls, **kargs):
+    def update_current_kms_defaults(cls, **kargs):
+        # FIXME this code is unreliable when switching between regions
+        # TODO this is all wrong and does not take into 
+        # account when regions change, because the keys will also change
+        # with the given region
+
         kms = cls.get_kms(**kargs)
+        region = cls.get_current_region()
+        
         aliases = kms.list_aliases()
         rsp = kms.list_keys()
-        all_keys = {k['KeyId']: k['KeyArn'] for k in rsp['Keys']}
+
+        cls.DEFAULT_KMS_IDS[region] = None
+        cls.KMS_ALIASES[region] = aliases['Aliases']
+        cls.KMS_KEYS[region] = {k['KeyId']: k for k in rsp['Keys']}
+        cls.KMS_ARNS[region] = {k['KeyId']: k['KeyArn'] for k in rsp['Keys']}
+
+        cls.KMS_INFOS[region] = {}
+        for kid in cls.KMS_KEYS:
+            cls.KMS_INFOS[region][kid] = kms.describe_key(KeyId=kid)
+
         alias_name = cls.DEFAULT_KMS_ALIAS if cls.DEFAULT_KMS_ALIAS else 'alias/aws/ebs'
-        alias_key_id = cls.DEFAULT_KMS_ID
-        if alias_key_id is not None and alias_name is not None:
-            return kms.describe_key(KeyId=cls.DEFAULT_KMS_ID)
-        if cls.DEFAULT_KMS_ID:
-            cls.DEFAULT_KMS_ALIAS = "None"
-            for alias in aliases['Aliases']:
-                if 'TargetKeyId' in alias and alias['TargetKeyId'] == alias_key_id:
-                    cls.DEFAULT_KMS_ID = alias['TargetKeyId']
-                    cls.DEFAULT_KMS_ALIAS = alias['AliasName']
-                    break
+        for alias in cls.KMS_ALIASES[region]:
+            if alias['AliasName'] == alias_name:
+                cls.DEFAULT_KMS_IDS[region] = alias['TargetKeyId']
+                cls.DEFAULT_KMS_ALIASES[region] = alias['AliasName']
+                break
+
+        if cls.DEFAULT_KMS_IDS[region] is None:
+            cls.DEFAULT_KMS_IDS[region] = list(all_keys.keys())[0]
+            cls.DEFAULT_KMS_ALIASES[region] = "None"
+            cls.DEFAULT_KMS_ARNS[region] = cls.KMS_ARNS[region][cls.DEFAULT_KMS_IDS[region]]
         else:
-            for alias in aliases['Aliases']:
-                if alias['AliasName'] == alias_name:
-                    cls.DEFAULT_KMS_ID = alias['TargetKeyId']
-                    cls.DEFAULT_KMS_ALIAS = alias['AliasName']
-                    break
-        if cls.DEFAULT_KMS_ID is None:
-            cls.DEFAULT_KMS_ID = list(all_keys.keys())[0]
-            cls.DEFAULT_KMS_ALIAS = "None"
-            cls.DEFAULT_KMS_ARN = all_keys[cls.DEFAULT_KMS_ID]
-        else:
-            cls.DEFAULT_KMS_ARN = all_keys[cls.DEFAULT_KMS_ID]
+            cls.DEFAULT_KMS_ARNS[region] = cls.KMS_ARNS[region][cls.DEFAULT_KMS_IDS[region]]
 
     @classmethod
-    def get_default_kms_key(cls, **kargs):
-        if cls.DEFAULT_KMS_ID is None:
-            cls.init_kms_defaults(**karg)
-        return {'alias':cls.DEFAULT_KMS_ALIAS, 
-                'keyarn':cls.DEFAULT_KMS_ARN, 
-                'keyid':cls.DEFAULT_KMS_ID}
+    def get_default_kms_key(cls, region, **kargs):
+        if cls.DEFAULT_KMS_IDS[region] is None:
+            cls.update_current_kms_defaults(**karg)
+        return {'alias':cls.DEFAULT_KMS_ALIASES[region], 
+                'keyarn':cls.DEFAULT_KMS_ARNS[region], 
+                'keyid':cls.DEFAULT_KMS_IDS[region]}
 
     @classmethod
     def check_kms_key(cls, key_arn=None, key_id=None, **kargs):
         cls.LOGGER.debug("checking key: arn={}, id={}".format(key_arn, key_id))
-        info = cls.get_kms_key(key_arn=key_arn, key_id=key_id, **kargs)
+        region = cls.get_current_region()
+        info = cls.get_kms_key(region=region, key_arn=key_arn, key_id=key_id, **kargs)
         return not info is None
 
     @classmethod
-    def recreatems_key(cls, tags=None, **kargs):
+    def recreate_kms_key(cls, tags=None, **kargs):
         kms = cls.get_kms(**kargs)
         cls.LOGGER.info("creating a new kms key".format(key_arn, key_id))
         # TODO add tags
@@ -302,27 +447,50 @@ class Commands(object):
         return {'alias':"None", 
                 'keyarn':y['Arn'], 
                 'keyid':y['KeyId']}
+    
+    @classmethod
+    def create_kms_key(cls, region, tags=None, **kargs):
+        cls.set_region(region)
+        kms = cls.get_kms(**kargs)
+        cls.LOGGER.info("creating a new kms key".format(key_arn, key_id))
+        # TODO add tags
+        _kargs = {}
+        if tags:
+            _kargs['Tags'] = tags
+
+        x = kms.create_key(**tags)
+        y = x['KeyMetadata']
+        cls.KMS_KEYS[region][y['KeyId']] = y
+        cls.KMS_ARNS[region][y['KeyId']] = y['Arn']
+        cls.KMS_ARNS[region][y['KeyId']] = kms.describe_key(KeyId=y['KeyId'])
+        return {'alias':"None", 
+                'keyarn':y['Arn'], 
+                'keyid':y['KeyId']}
 
     @classmethod
-    def get_kms_key(cls, key_arn=None, key_id=None, create=False, **kargs):
+    def get_kms_key(cls, region, key_arn=None, key_id=None, create=False, **kargs):
         cls.LOGGER.info("geting a kms key: arn={}, id={} create={}".format(key_arn, key_id, create))
         if key_arn is None and key_id is None and create:
-            return cls.create_kms_key(**kargs)
-        if key_id and cls.DEFAULT_KMS_ID and cls.DEFAULT_KMS_ID == key_id or \
-           key_arn and cls.DEFAULT_KMS_ARN and cls.DEFAULT_KMS_ARN == key_arn:
+            return cls.create_kms_key(region, **kargs)
+        
+        dft_key_id = None if region not in cls.DEFAULT_KMS_IDS else cls.DEFAULT_KMS_IDS[region]
+        dft_key_arn = None if region not in cls.DEFAULT_KMS_ARNS else cls.DEFAULT_KMS_ARNS[region]
+        if key_id and dft_key_id and dft_key_id == key_id or \
+           key_arn and dft_key_arn and dft_key_arn == key_arn:
             return cls.get_default_kms_key(**kargs)
+
         if key_id is None and key_arn is None:
             return cls.get_default_kms_key(**kargs)
-        kms = cls.get_kms(**kargs)
-        aliases = kms.list_aliases()
-        rsp = kms.kms.list_keys()
+        
+        if region not in cls.KMS_KEYS:
+            cls.update_current_kms_defaults(region, **kargs)
         setit = False
         if key_id:
-            all_keys = {k['KeyId']: k['KeyArn'] for k in rsp['Keys']}
+            all_keys = cls.KMS_KEYS
             key_arn = all_keys.get(key_id, None)
             setit = key_id in all_keys
         else:
-            all_keys = {k['KeyArn']:k['KeyId'] for k in rsp['Keys']}
+            all_keys = {v:k for k,v in cls.KMS_ARNS.items()}
             key_id = all_keys.get(key_arn, None)
             setit = key_arn in all_keys
         
@@ -331,37 +499,45 @@ class Commands(object):
                     'keyarn':key_arn, 
                     'keyid':key_id}
         elif create:
-            return cls.create_key(**kargs)
+            return cls.create_kms_key(region, **kargs)
         cls.LOGGER.info("Failed to get a kms key: arn={}, id={} create={}".format(key_arn, key_id, create))
         return None
 
     @classmethod
-    def get_default_aws_key_id(cls, **kargs):
-        kms = cls.get_kms(region=region, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+    def get_default_aws_key_id(cls, region, **kargs):
         aliases = kms.list_aliases()
-
-        alias_name = cls.DEFAULT_KMS_ALIAS if cls.DEFAULT_KMS_ALIAS else 'alias/aws/ebs'
-        alias_key_id = cls.DEFAULT_KMS_ID
+        update_current_kms_defaults(region, **kargs)
+        kms = cls.get_kms(region=region, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
+        aliases = cls.DEFAULT_KMS_ALIASES[region]
+        alias_name = cls.DEFAULT_KMS_ALIAS
+        alias_key_id = cls.DEFAULT_KMS_IDS[region]
         if alias_key_id is not None and alias_name is not None:
-            return kms.describe_key(KeyId=cls.DEFAULT_KMS_ID)
-        if cls.DEFAULT_KMS_ID:
+            return kms.describe_key(KeyId=cls.DEFAULT_KMS_IDS[region])
+        if cls.DEFAULT_KMS_IDS[region]:
             for alias in aliases['Aliases']:
                 if 'TargetKeyId' in alias and alias['TargetKeyId'] == alias_key_id:
-                    cls.DEFAULT_KMS_ID = alias['TargetKeyId']
-                    cls.DEFAULT_KMS_ALIAS = alias['AliasName']
+                    cls.DEFAULT_KMS_IDS[region] = alias['TargetKeyId']
+                    cls.DEFAULT_KMS_ALIASES[region] = alias['AliasName']
                     break
         else:
             for alias in aliases['Aliases']:
                 if alias['AliasName'] == alias_name:
-                    cls.DEFAULT_KMS_ID = alias['TargetKeyId']
-                    cls.DEFAULT_KMS_ALIAS = alias['AliasName']
+                    cls.DEFAULT_KMS_IDS[region] = alias['TargetKeyId']
+                    cls.DEFAULT_KMS_ALIASES[region] = alias['AliasName']
                     break
-        if cls.DEFAULT_KMS_ID:
-            return kms.describe_key(KeyId=cls.DEFAULT_KMS_ID)
+        if cls.DEFAULT_KMS_IDS[region]:
+            return kms.describe_key(KeyId=cls.DEFAULT_KMS_IDS[region])
         return None
 
     @classmethod
-    def get_kms(cls, kms=None, region=DEFAULT_REGION, aws_secret_access_key=None, aws_access_key_id=None, **kargs):
+    def get_kms(cls, kms=None, region=None, aws_secret_access_key=None, aws_access_key_id=None, **kargs):
+        need_update = region == cls.get_current_region()
+
+        if region:
+            cls.set_region(region)
+        else:
+            region = cls.get_current_region()
+
         if kms is None:
             cls.LOGGER.debug("Creating ec2 client for {} in {}".format(region, aws_access_key_id))
             aws_secret_access_key = aws_secret_access_key if aws_secret_access_key else cls.AWS_SECRET_ACCESS_KEY
@@ -370,6 +546,9 @@ class Commands(object):
                            region, 
                            aws_access_key_id=aws_access_key_id, 
                            aws_secret_access_key=aws_secret_access_key)
+        if need_update:
+            cls.update_current_kms_defaults(**kargs)
+
         return kms
 
     @classmethod
@@ -507,7 +686,7 @@ class Commands(object):
                 'Ebs': ebs 
             }
             if ebs['Encrypted']:
-                info = cls.get_kms_key(kms_key_id=kms_key_id, key_arn=kms_key_arn, create=True, tags=tags, **kargs)
+                info = cls.get_kms_key(region=cls.get_current_region(), kms_key_id=kms_key_id, key_arn=kms_key_arn, create=True, tags=tags, **kargs)
                 keyid = None
                 if info is None:
                     keyid = info['keyid']
@@ -605,7 +784,9 @@ class Commands(object):
 
     @classmethod
     def build_instance_region(cls, region, instance_name, boto_config, max_count=None):
-        region = region if region else cls.DEFAULT_REGION
+        cls.set_region(region)
+        ec2 = cls.get_ec2(**boto_config)
+        region = region if region else cls.get_current_region()
         instance_config = cls.get_instance_description(instance_name, boto_config)
         if len(instance_config) == 0:
             raise Exception("Incomplete instance configurations")
@@ -947,6 +1128,7 @@ class Commands(object):
         relevant_instances = []
         for region in regions:
             kargs['region'] = region
+            cls.set_region(region)
             instances = cls.find_relevant_instances(target_tags=target_tags, **kargs)
             relevant_instances.append({'region': region, 'instances': instances})
         return relevant_instances
@@ -957,6 +1139,7 @@ class Commands(object):
         relevant_instances = []
         for region in regions:
             kargs['region'] = region
+            cls.set_region(region)
             volumes = cls.find_relevant_volumes(target_tags=target_tags, **kargs)
             relevant_instances.append({'region': region, 'volumes': volumes})
         return relevant_instances
@@ -1022,6 +1205,7 @@ class Commands(object):
     def terminate_relevant_instances_multiple_regions(cls, regions=REGIONS, dry_run=True, **kargs):
         relevant_instances = []
         for region in regions:
+            cls.set_region(region)
             kargs['region'] = region
             results = cls.terminate_relevant_instances(dry_run=dry_run, **kargs)
             relevant_instances.append({'region': region, 'instances': results})
@@ -1031,6 +1215,7 @@ class Commands(object):
     def delete_relevant_volumes_multiple_regions(cls, regions=REGIONS, dry_run=True, **kargs):
         relevant_volumes = []
         for region in regions:
+            cls.set_region(region)
             kargs['region'] = region
             results = cls.delete_relevant_volumes(dry_run=dry_run, **kargs)
             relevant_volumes.append({'region': region, 'volumes': results})
