@@ -236,7 +236,7 @@
                 "chmod a+rw -R /opt/data",
                 "sudo apt update && sudo apt install -y apt-transport-https ca-certificates curl software-properties-common git python3-pip",
                 "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -",
-                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable\"",
+                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable\"",
                 "sudo apt update && sudo apt install -y docker-ce docker-compose",
                 "echo 'MONGO_INITDB_ROOT_USERNAME={mongo_user}' >> env",
                 "echo 'MONGO_INITDB_ROOT_PASSWORD={mongo_pass}' >> env",
@@ -251,7 +251,7 @@
             "commands": [
                 "sudo apt update && sudo apt install -y apt-transport-https ca-certificates curl software-properties-common git python3-pip",
                 "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -",
-                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable\"",
+                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable\"",
                 "sudo apt update && sudo apt install -y docker-ce docker-compose",
                 "sudo usermod -aG docker {username}",
                 "mkdir ssl",
