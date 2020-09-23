@@ -129,7 +129,7 @@ def handle_dockerhp_config_update_and_start(instance_name, region: str, base_con
     key_info = boto.Commands.get_instance_key_info(instance_name, boto_config, region=region)
     key_name = key_info.get("key_name", None)
     key_filename = boto.Commands.get_key_pair(key_info['key_name'], key_info['key_path'], 
-                                              recreate=False, **boto_config)
+                                              recreate=False, region=region, **boto_config)
 
     for instance, ip in instance_public_ip.items():            
         dockerhp_config["sensor_id"] = "{}:|:{}:|:{}".format(region, ip, instance)
@@ -254,20 +254,38 @@ def deploy_dockerhp(args, boto_config, boto_secrets):
     dc_command_format_args = merge_dicts(dc_command_format_args, boto_secrets)
     max_count = args.dockerhp_count
     regions = args.dockerhp_regions
-    rdc_ai, rdc_ipi, rdc_av, rdc_sr = build_instance_and_setup_multi_regions_count(instance_name, boto_config, regions, 
-                                                           max_count, command_format_args=dc_command_format_args)
 
+
+    rdc_ai = {}
+    rdc_ipi = {}
+    rdc_av = {}
+    rdc_sr = {}
     results = {}
+
     for region in regions:
-        dc_ai = rdc_ai[region]
-        dc_ipi = rdc_ipi[region]
-        if dc_ipi is None:
-            LOGGER.critical("Public IP information is None, meaning an error occurred somewhere, skipping: {}".format(region))
-            continue
-        if dc_ai is None:
-            LOGGER.critical("Instance information is None, meaning an error occurred somewhere, skipping: {}".format(region))
-            continue
-        results[region] = handle_dockerhp_config_update_and_start(instance_name, region, base_config, dc_ai, dc_ipi, dc_command_format_args, boto_config)
+        rdc_ai[region] = None
+        rdc_ipi[region] = None
+        rdc_av[region] = None
+        rdc_sr[region] = None
+        try:
+            dc_ai, dc_ipi, dc_av, dc_sr = build_instance_and_setup(instance_name, boto_config, setup_activity_name="setup", 
+                                                       command_format_args=dc_command_format_args, region=region, 
+                                                       max_count=max_count)
+            rdc_ai[region] = dc_ai
+            rdc_ipi[region] = dc_ipi
+            rdc_av[region] = dc_av
+            rdc_sr[region] = dc_sr
+            if dc_ipi is None:
+                LOGGER.critical("Public IP information is None, meaning an error occurred somewhere, skipping: {}".format(region))
+                continue
+            if dc_ai is None:
+                LOGGER.critical("Instance information is None, meaning an error occurred somewhere, skipping: {}".format(region))
+                continue
+            results[region] = handle_dockerhp_config_update_and_start(instance_name, region, base_config, dc_ai, dc_ipi, dc_command_format_args, boto_config)
+        except:
+            LOGGER.critical("Exception occurred when trying to initialize instances in {}".format(region))
+            LOGGER.critical(traceback.format_exc())            
+
     return results
 
 def deploy_collector(args, boto_config, boto_secrets):
