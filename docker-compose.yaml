@@ -1,0 +1,46 @@
+version: '3.1'
+
+services:
+
+  mongo:
+    image: collector_mongo
+    restart: always
+    build:
+      context: .
+      dockerfile: ./dockerfiles/mongodb
+    env_file:
+      - ./env
+    volumes:
+      - /opt/data/mongo:/data/db
+      # - ./ssl/mongodb.pem:/data/ssl/mongodb.pem
+      # - ./ssl/mongodb_ca.crt:/data/ssl/mongodb-cert.crt
+    ports:
+      - 27127:27017
+    command:
+        --tlsMode=requireTLS
+        --tlsCertificateKeyFile=/data/ssl/mongodb.pem
+        --tlsCAFile=/data/ssl/mongodb-cert.crt
+        --tlsAllowConnectionsWithoutCertificates
+
+  collector:
+    image: collector
+    restart: always
+    build:
+      context: .
+      dockerfile: ./dockerfiles/collector
+    ports:
+      - 5000:5000
+
+  dockerhp:
+    image: dockerhp
+    restart: always
+    build:
+      context: .
+      dockerfile: ./dockerfiles/dockerhp
+    ports:
+      - 61023:61023
+      - 2375:2375
+      - 2376:2376
+      - 2377:2377
+      - 4243:4243
+      - 4244:4244

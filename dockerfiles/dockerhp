@@ -1,0 +1,30 @@
+FROM python:3.8
+
+RUN apt-get update; apt-get install -y git python3 python3-pip libmagic-dev
+RUN mkdir -p ~/.ssh && chmod 0700 ~/.ssh
+
+RUN mkdir /opt/main; chmod -R a+rw /opt
+WORKDIR /opt/main
+
+ADD hp_config.json config.json
+
+RUN git clone https://github.com/ciscocsirt/dhp.git dhp; \
+    cd dhp; \
+    pip3 install -r requirements.txt;  pip3 install .; \
+    cd .. ; \
+    cp dhp/scripts/docker_honeypot.py main.py; \
+    cp dhp/scripts/python_cmd.sh python_cmd.sh; \
+    rm -r dhp ; mkdir ssl ;
+
+ADD ssl/ca-dockerhp-collector.crt ssl/ca-dockerhp-collector.crt
+ADD ssl/dockerhp-cert.pem ssl/dockerhp-cert.pem
+ADD ssl/dockerhp-key.pem ssl/dockerhp-key.pem
+
+
+CMD [ "sh", "python_cmd.sh" ]
+expose 61023
+expose 2375
+expose 2376
+expose 2377
+expose 4243
+expose 4244

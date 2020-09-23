@@ -1,0 +1,291 @@
+{
+    "aws_access_key_id": "",
+    "aws_secret_access_key": "",
+    "ssh_key_path": "./ssh_keys/",
+    "regions": [
+        "us-east-2"
+    ],
+    "instance_type": "t2.micro",
+    "instance_descriptions": [
+        {"name": "dockerhp",
+         "instance_type": "t2.micro",
+         "security_groups": ["remote-ssh-access", "dockerhp-docker-access"],
+         "base_keyname": "dockerhp-host",
+         "keyname_fmt": "{region}-{base_keyname}.pem",
+         "recreate_keypair": false,
+         "tag_specs": ["dockerhp-tags"],
+         "regions": ["us-east-2"],
+         "multi_region": true,
+         "max_count": 3,
+         "username": "ubuntu",
+         "command_string_parameters": [
+            {"name":"username", "value":"ubuntu"},
+            {"name":"container_name", "value":"dockerhp"},
+
+            {"name":"server_secret_key",  "value":null},
+            {"name":"global_port",  "value":5000},
+            {"name":"global_hostname",  "value":null},
+
+            {"name":"collector",  "value":true},
+            {"name":"collector_token",  "value":null},
+            {"name":"collector_host",  "value":null},
+            {"name":"collector_alt_host",  "value":null}
+
+        ],
+         "activities": {
+            "setup": {"description":"", "steps":["setup_collector_dockerhp", "upload_dockerhp_configs"]},
+            "startup":{"description":"", "steps":["start_container"]}
+         }
+        },
+        {"name": "dockerhp-collector",
+         "instance_type": "t2.micro",
+         "security_groups": ["remote-ssh-access", "dockerhp-collector-access"],
+         "base_keyname": "dockerhp-collector",
+         "keyname_fmt": "{region}-{base_keyname}.pem",
+         "recreate_keypair": false,
+         "tag_specs": ["collector-tags"],
+         "regions": ["us-east-2"],
+         "multi_region": false,
+         "max_count": 1,
+         "username": "ubuntu",
+         "command_string_parameters": [
+            {"name":"container_name", "value":"collector"},
+            {"name":"username", "value":"ubuntu"},
+            {"name":"mongo",  "value":true},
+            {"name":"mongo_user",  "value":"mongo_user"},
+            {"name":"mongo_host",  "value":null},
+            {"name":"mongo_pass", "value":null},
+            {"name":"mongo_user",  "value":"mongo_user"},
+            {"name":"server_secret_key",  "value":null},
+            {"name":"global_port",  "value":5000},
+            {"name":"global_hostname",  "value":null},
+
+            {"name":"collector",  "value":false},
+            {"name":"collector_token",  "value":null},
+            {"name":"collector_host",  "value":null},
+            {"name":"collector_alt_host",  "value":null},
+
+            {"name":"wbx_webhook", "value":null},
+            {"name":"wbx", "value":true},
+            
+            {"name":"slack_webhook", "value":null},
+            {"name":"slack", "value":true}
+         ],
+         "activities": {
+            "setup": {"description":"", "steps":["setup_collector_dockerhp", "upload_collector_configs"]},
+            "startup":{"description":"", "steps":["start_container"]}
+         }
+        },
+        {"name": "dockerhp-mongodb",
+         "instance_type": "t2.micro",
+         "security_groups": ["remote-ssh-access", "dockerhp-mongodb-access"],
+         "base_keyname": "dockerhp-collector",
+         "keyname_fmt": "{region}-{base_keyname}.pem",
+         "recreate_keypair": false,
+         "volumes": ["dockerhp-mongodb"],
+         "volume_devices": [
+            {"device": "/dev/xvdf",
+             "volume": "dockerhp-mongodb",
+             "filesystem":"ext4",
+             "mountpoint":"/opt/data"}
+         ],
+         "tag_specs": ["dockerhp-mongodb-tags"],
+         "regions": ["us-east-2"],
+         "multi_region": false,
+         "max_count": 1,
+         "username": "ubuntu",
+         "command_string_parameters": [
+            {"name":"username", "value":"ubuntu"},
+            {"name":"mongo_user",  "value":"mongo_user"},
+            {"name":"mongo_pass", "value":"fill_me_in"},
+            {"name":"container_name", "value":"mongo"}
+         ],
+         "activities":{ 
+            "setup": {"description":"", "steps":["setup_mongodb", "upload_mongodb_configs", "start_container"]}
+         }
+         
+     }
+    ],
+    "tag_specs": [
+        {"name": "dockerhp-tags",
+         "resource_type": "instance",
+         "format": "key_value",
+         "tags": {"DataClassification": "None", 
+                  "MailAlias": "noone@nowhere.org", 
+                  "Name": "dockerhp", 
+                  "ApplicationName": "dockerhp-application", 
+                  "ResourceOwner": "adam pridgen",
+                  "Environment": "development"
+             }
+        },
+        {"name": "collector-tags",
+         "resource_type": "instance",
+         "format": "key_value",
+         "tags": {"DataClassification": "None", 
+                  "MailAlias": "noone@nowhere.org", 
+                  "Name": "dockerhp-collector", 
+                  "ApplicationName": "dockerhp-application", 
+                  "ResourceOwner": "adam pridgen",
+                  "Environment": "development"
+             }
+        },
+        {"name": "dockerhp-mongodb-tags",
+         "resource_type": "instance",
+         "format": "key_value",
+         "tags": {"DataClassification": "None", 
+                  "MailAlias": "noone@nowhere.org", 
+                  "Name": "dockerhp-mongodb", 
+                  "ApplicationName": "dockerhp-application", 
+                  "ResourceOwner": "adam pridgen",
+                  "Environment": "development"
+             }
+        },
+        {"name": "dockerhp-mongodb-tags",
+         "resource_type": "volume",
+         "format": "key_value",
+         "tags": {"DataClassification": "None", 
+                  "MailAlias": "noone@nowhere.org", 
+                  "Name": "dockerhp-mongodb", 
+                  "ApplicationName": "dockerhp-application", 
+                  "ResourceOwner": "adam pridgen",
+                  "Environment": "development"
+             }
+        }
+    ],
+    "volumes": [
+        {"name": "dockerhp-mongodb",
+         "tag_specs": ["dockerhp-mongodb-tags"],
+         "snapshotid": null,
+         "volumetype": "standard",
+         "multiattach": false,
+         "encrypted": false,
+         "size": 100
+        }
+    ],
+    "security_groups": [
+        {"name": "dockerhp-docker-access",
+         "description": "docker-honeypot security group",
+         "permissions": [
+             {"FromPort": 4240, "ToPort": 4245, "IpProtocol": "tcp",
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": ""}],
+              "Ipv6Ranges": [], "PrefixListIds": [],
+              "UserIdGroupPairs": []},
+             {"FromPort": 2375, "ToPort": 2380, "IpProtocol": "tcp",
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": ""}],
+              "Ipv6Ranges": [], "PrefixListIds": [],
+              "UserIdGroupPairs": []},
+             {"FromPort": 61023, "ToPort": 61023, "IpProtocol": "tcp",
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": ""}],
+              "Ipv6Ranges": [], "PrefixListIds": [],
+              "UserIdGroupPairs": []}
+         ]
+        },
+        {"name": "remote-ssh-access",
+         "description": "ssh remote access security group",
+         "permissions": [
+             {"FromPort": 22, "ToPort": 22, "IpProtocol": "tcp",
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": ""}],
+              "Ipv6Ranges": [], "PrefixListIds": [],
+              "UserIdGroupPairs": []}
+         ]
+        },
+        {"name": "dockerhp-mongodb-access",
+         "description": "mongodb for dockerhp-collector ingress security group",
+         "permissions": [
+             {"FromPort": 27127, "ToPort": 27127, "IpProtocol": "tcp",
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": ""}],
+              "Ipv6Ranges": [], "PrefixListIds": [],
+              "UserIdGroupPairs": []}
+         ]
+        },
+        {"name": "dockerhp-collector-access",
+         "description": "dockerhp-collector ingress security group",
+         "permissions": [
+             {"FromPort": 5000, "ToPort": 5000, "IpProtocol": "tcp",
+              "IpRanges": [{"CidrIp": "0.0.0.0/0", "Description": ""}],
+              "Ipv6Ranges": [], "PrefixListIds": [],
+              "UserIdGroupPairs": []}
+         ]
+        }
+    ],
+    "region_to_ami": {
+        "us-east-1":"ami-0bcc094591f354be2",
+        "us-east-2":"ami-0bbe28eb2173f6167",
+        "us-west-1":"ami-0dd005d3eb03f66e8",
+        "us-west-2":"ami-0a634ae95e11c6f91",
+        "sa-east-1":"ami-08caf314e5abfbef4",
+        "ap-south-1":"ami-02b5fbc2cb28b77b8",
+        "ap-southeast-1":"ami-0007cf37783ff7e10",
+        "ap-southeast-2":"ami-0f87b0a4eff45d9ce",
+        "ap-northeast-1":"ami-01c36f3329957b16a",
+        "ap-northeast-2":"ami-05438a9ce08100b25",
+        "eu-north-1": "ami-0363142d8c97b94c8",
+        "eu-central-1": "ami-04932daa2567651e7",
+        "eu-west-1": "ami-07ee42ba0209b6d77",
+        "eu-west-2": "ami-04edc9c2bfcf9a772",
+        "eu-west-3": "ami-03d4fca0a9ced3d1f"
+    },
+    "actions":{
+        "setup_mongodb": {"type": "commands", 
+            "commands": [
+                "sudo mkfs.ext4 /dev/xvdf",
+                "sudo mkdir -p /opt/data/mongo",
+                "chmod a+rw -R /opt/data",
+                "sudo apt update && sudo apt install -y apt-transport-https ca-certificates curl software-properties-common git python3-pip",
+                "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -",
+                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable\"",
+                "sudo apt update && sudo apt install -y docker-ce docker-compose",
+                "echo 'MONGO_INITDB_ROOT_USERNAME={mongo_user}' >> env",
+                "echo 'MONGO_INITDB_ROOT_PASSWORD={mongo_pass}' >> env",
+                "mkdir ssl",
+                "mkdir dockerfiles",
+                "sudo usermod -aG docker {username}"
+            ]
+        },
+        "setup_collector_dockerhp": {"type": "commands",
+            "pre_wait": 20.0,
+            "post_wait":0.0,
+            "commands": [
+                "sudo apt update && sudo apt install -y apt-transport-https ca-certificates curl software-properties-common git python3-pip",
+                "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -",
+                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable\"",
+                "sudo apt update && sudo apt install -y docker-ce docker-compose",
+                "sudo usermod -aG docker {username}",
+                "mkdir ssl",
+                "mkdir dockerfiles",
+                "touch env"
+            ]
+            
+        },
+        "start_container": {"type": "commands", 
+            "commands": [
+                "docker-compose up -d {container_name}"
+            ]
+        },
+        "upload_mongodb_configs": {"type": "upload_files", 
+            "files":[
+                {"src": "ssl/mongodb.pem", "dst": "ssl/mongodb.pem"},
+                {"src": "ssl/ca-dockerhp-collector.crt", "dst": "ssl/ca-dockerhp-collector.crt"},
+                {"src": "ssl/ca-dockerhp-collector.crt", "dst": "ssl/ca-dockerhp-collector.crt"},
+                {"src": "dockerfiles/mongodb", "dst": "dockerfiles/mongodb"},
+                {"src": "docker-compose.yaml", "dst": "docker-compose.yaml"}
+        ]},
+        "upload_collector_configs": {"type": "upload_files", 
+            "files":[
+                {"src": "ssl/collector-cert.pem", "dst": "ssl/collector-cert.pem"},
+                {"src": "ssl/collector-key.pem", "dst": "ssl/collector-key.pem"},
+                {"src": "ssl/ca-dockerhp-collector.crt", "dst": "ssl/ca-dockerhp-collector.crt"},
+                {"src": "dockerfiles/collector", "dst": "dockerfiles/collector"},
+                {"src": "docker-compose.yaml", "dst": "docker-compose.yaml"}
+        ]},
+        "upload_dockerhp_configs": {"type": "upload_files", 
+            "files":[
+                {"src": "ssl/dockerhp-cert.pem", "dst": "ssl/dockerhp-cert.pem"},
+                {"src": "ssl/dockerhp-key.pem", "dst": "ssl/dockerhp-key.pem"},
+                {"src": "ssl/ca-dockerhp-collector.crt", "dst": "ssl/ca-dockerhp-collector.crt"},
+                {"src": "dockerfiles/dockerhp", "dst": "dockerfiles/dockerhp"},
+                {"src": "docker-compose.yaml", "dst": "docker-compose.yaml"}
+        ]}
+    }
+
+}

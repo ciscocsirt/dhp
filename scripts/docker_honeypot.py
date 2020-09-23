@@ -18,90 +18,146 @@ __copyright__ = """
 __license__ = "Apache 2.0"
 
 from docker_honey.notify import Notifier
+from docker_honey.simple_commands.app import Hypercorn as App
 from docker_honey.server import DockerHp
 from docker_honey.consts import *
+from docker_honey.dockerhp_actions import *
+from docker_honey.simple_commands.util import *
+
 from time import sleep
 import asyncio
 import argparse
 from multiprocessing import Process
+from quart import Quart, jsonify, Response, request
+import json
 
+LOGGER = get_stream_logger(__name__)
 # require installation
 parser = argparse.ArgumentParser()
-parser.add_argument("-ports", help="ports to listen on", type=int,  nargs='+', default=PORTS)
-parser.add_argument("-terminate_with_error", help="send a server error after create API call", action="store_true", default=False)
-parser.add_argument("-error_message", help="error message to send after create API call", default=ERROR_MESSAGE, type=str)
-parser.add_argument("-sensor_id", help="sensor identifier", default=DEFAULT_SENSOR_NAME, type=str)
-parser.add_argument("-sensor_ip", help="sensor ip address", default=SENSOR_EXT_IP, type=str)
-
-parser.add_argument("-http", help="send results to http endpoint", default=False, action='store_true')
-parser.add_argument("-http_url", help="http endpoint url", default=None, type=str)
-parser.add_argument("-http_verify_ssl", help="verify ssl (if no certificates specified)", default=HTTP_VERIFY_SSL, action='store_true')
-parser.add_argument("-http_client_key", help="client key for authentication", default=None, type=str)
-parser.add_argument("-http_client_crt", help="client certificate for authentication", default=None, type=str)
-parser.add_argument("-http_server_crt", help="server certificate for authentication", default=None, type=str)
-parser.add_argument("-http_token", help="http token", default=None, type=str)
+parser.add_argument("-config", help="path to the configuration", type=str,  default=None)
 
 
-parser.add_argument("-use_mongo", help="use mongo", default=False, action='store_true')
-parser.add_argument("-mongo_db", help="mongo database to connect to", default=DATABASE, type=str)
-parser.add_argument("-mongo_host", help="mongo host to connect to", default='127.0.0.1', type=str)
-parser.add_argument("-mongo_port", help="mongo port go connect to", default=27017, type=int)
-parser.add_argument("-mongo_user", help="mongo username", default=None, type=str)
-parser.add_argument("-mongo_pass", help="mongo password", default=None, type=str)
+NOTIFIER = None
 
-parser.add_argument("-email", help="notify about attempt", action='store_true', default=False)
-parser.add_argument("-email_notify_subject", help="email subject line", default=DEFAULT_SUBJECT, type=str)
-parser.add_argument("-email_server", help="email server", default="smtp.gmail.com", type=str)
-parser.add_argument("-email_port", help="email port", default=587, type=int)
-parser.add_argument("-email_username", help="email server", default=None, type=str)
-parser.add_argument("-email_password", help="email password", default=None, type=str)
-parser.add_argument("-email_cc_list", help="email cc list", nargs='+', default=None, type=str)
+PROCESSES = []
+def start_command_listener(host, port, certs_path, ca_crt, server_crt, server_key, secret_key):
+    LOGGER.info("settingup command_listener")
+    # print(get_single_notifier().server_secret_key)
+    app = App('docker-hp-commands', host='0.0.0.0', port=port, certs_path=certs_path,
+              ca_crt=ca_crt, server_crt=server_crt, server_key=server_key)
 
-
-# parser.add_argument("-slack_token", help="someone to email when event happens", default=None, type=str)
-parser.add_argument("-slack", help="notify about attempt", action='store_true', default=False)
-parser.add_argument("-slack_channel", help="slack channel tp post too", default=None, type=str)
-parser.add_argument("-slack_username", help="username for webhook", default='docker_honey', type=str)
-parser.add_argument("-slack_webhook", help="webhook url", default=None, type=str)
-parser.add_argument("-slack_emoticon", help="slack emoticon to use", default=":suspect:", type=str)
-
-parser.add_argument("-wbx", help="notify about attempt", action='store_true', default=False)
-parser.add_argument("-wbx_webhook", help="webhook url", default=None, type=str)
+    app.add_url_rule(HP_COMMAND_ENDPOINT, 'commands', handle_remote_commands, methods = ['POST'])
+    try:
+        LOGGER.info("Starting command_listener app")
+        app.quart_run()
+    except KeyboardInterrupt:
+        pass
+    except:
+        pass
     
+    LOGGER.info("Exiting from start_command_listener")
 
-def main(sensor_id, sensor_ip, notifier, port, terminate_with_error, error_message):
-    honeypot = DockerHp(sensor_id, sensor_ip, notifier, port=port, 
+
+def main(sensor_id, sensor_ip, notifier, ports, terminate_with_error, error_message):
+    honeypot = DockerHp(sensor_id, sensor_ip, notifier, ports=ports, 
                         terminate_with_error=terminate_with_error, error_message=error_message)
-    loop = asyncio.get_event_loop()
-    loop.create_task(honeypot.serve_forever())
-    loop.run_forever()
+    LOGGER.info("Starting main")
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(honeypot.serve_forever())
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    except:
+        pass
 
+    LOGGER.info("Exiting from main")
+
+
+async def wait_forever():
+    p = [p.is_alive() for p in PROCESSES]
+    await get_single_notifier().send_registration()
+    sleep(60.0)
+    while len(p) > 0:
+        try:
+            await get_single_notifier().send_ping()
+            sleep(60.0)
+            p = [p.is_alive() for p in PROCESSES]
+        except KeyboardInterrupt:
+            break
+        except:
+            pass
+    LOGGER.info("Exiting from wait_forever")
 
 if __name__ == "__main__":
     args = parser.parse_args()
     dargs = vars(args)
+    if args.config:
+        config_path = args.config
+        del dargs[CONFIG]
+        config = json.load(open(config_path))
+        dargs.update(config)
 
-    
-    terminate_with_error = args.terminate_with_error
-    error_message = args.error_message
-    sensor_id = args.sensor_id
-    sensor_ip = args.sensor_ip
-    notifier = Notifier(**dargs)
+    if dargs.get('global_hostname', None):
+        dargs['global_hostname'] = get_external_ip()
+        dargs['global_port'] = DEFAULT_HP_LPORT
 
-    processes = []
+    terminate_with_error = dargs.get('terminate_with_error', True)
+    error_message = dargs.get('error_message', ERROR_MESSAGE)
+    sensor_id = dargs.get('sensor_id', None)
+    sensor_ip = dargs.get('sensor_ip', None)
+
+
+    if sensor_ip is None:
+        sensor_ip = get_external_ip()
+        dargs["sensor_ip"] = sensor_ip
+
+    if sensor_id is None:
+        sensor_id = "{}-{}".format(DEFAULT_SENSOR_NAME, sensor_ip)
+        dargs['sensor_id'] = sensor_id
+
+
+    listen = dargs.get("dockerhp_listen", False)
+    listen_address = '0.0.0.0'
+    listen_port = dargs.get("dockerhp_port", DEFAULT_HP_LPORT)
+
+    listen_port = listen_port if listen_port else DEFAULT_HP_LPORT 
+    listen_address = listen_address if listen_address else DEFAULT_HP_LADDR
+
+    server_ca = dargs.get("dockerhp_ca_crt", None)
+    server_crt = dargs.get("dockerhp_crt", None)
+    server_key = dargs.get("dockerhp_key", None)
+    secret_key = dargs.get("server_secret_key", None)
+    certs_path = dargs.get("certs_path", None)
+    NOTIFIER = get_single_notifier(**dargs)
+    # print(secret_key)
+
+    PROCESSES = []
     try:
-        for port in dargs['ports']:
-            
-            p = Process(target=main, 
-                        args=(sensor_id, sensor_ip, notifier, port, terminate_with_error, error_message))
+        if listen:
+            p = Process(target=start_command_listener, 
+                        args=(listen_address, listen_port, certs_path, server_ca, server_crt, server_key, secret_key))
             p.start()
-            processes.append(p)
+            PROCESSES.append(p)
+            
+        p = Process(target=main, 
+                    args=(sensor_id, sensor_ip, get_single_notifier(), dargs['ports'], terminate_with_error, error_message))
+        p.start()
+        PROCESSES.append(p)
 
-        while True:
-            if any([p.is_alive() for p in processes]):
-                sleep(5.0)
     except KeyboardInterrupt:
-        for p in processes:
-            p.terminate()
+        pass
 
-    [p.join() for p in processes]
+    # print(PROCESSES)
+    try:
+        loop = asyncio.get_event_loop()
+        asyncio.run(wait_forever())
+    except KeyboardInterrupt:
+        for p in PROCESSES:
+            p.terminate()        
+    except:
+        pass
+
+    for p in PROCESSES:    
+        if p.is_alive():
+            os.system('kill -9 {}'.format(p.pid))
