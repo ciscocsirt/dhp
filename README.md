@@ -14,6 +14,20 @@ The assumption is that this service is running in a cloud provider somewhere.  A
 
 Furthermore, if there is a desire to pull a webpage through a honeypot.  The collector can be used to distribute the request and then retrieve the results.
 
+If you end up using AWS, then there is an easy deployment script, `deploy.py`.  The script orchestrates the ordered deployment (e.g. instance allocation, setup commands, etc.) of all the requisite resources. 
+
+**After getting the AWS IAM creds and the required webhooks, update `samples/secrets_sample.json` --> `secrets.json` and execute this command**
+
+
+```
+python scripts/deploy.py -config samples/boto_config_sample.json \
+         -secrets secrets.json -new_secrets_file prod_secrets.json \
+         -mongodb_up -mongodb_region us-east-2 \
+         -collector_up -collector_region us-east2 \
+         -dockerhp_up -dockerhp_regions us-east-1 us-east-2 us-west-1 us-west-2 \
+         -dockerhp_count 3
+```
+
 ## Deployment and environment
 
 These services can be deployed several ways.  There is a `deploy.py` that will deploy all the services to Amazon AWS.  This script will create and update all the relevant _secrets_.  The services can be deployed using Python or Docker.  In these two cases, the configiration files for the honeypot and collector will need to be updated.
