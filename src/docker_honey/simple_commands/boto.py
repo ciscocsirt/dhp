@@ -50,7 +50,7 @@ class Commands(object):
             return cls.IMAGE_CATALOG[region]
 
         ec2 = cls.get_ec2(**kargs)
-        cls.LOGGER.info("Getting Instance info {}".format(region))
+        cls.LOGGER.info("Getting AMI info {} for all images".format(region))
         rsp = ec2.describe_images()
         cls.IMAGE_CATALOG[region] = []
         image_datas = rsp['Images']
@@ -355,9 +355,7 @@ class Commands(object):
 
     @classmethod
     def get_ec2(cls, ec2=None, region=None, aws_secret_access_key=None, aws_access_key_id=None, **kargs):
-        if region:
-            cls.set_region(region)
-        else:
+        if region is None:
             region = cls.get_current_region()
 
 
@@ -383,14 +381,13 @@ class Commands(object):
         return kms
 
     @classmethod
-    def update_current_kms_defaults(cls, **kargs):
+    def update_current_kms_defaults(cls, region=None, **kargs):
         # FIXME this code is unreliable when switching between regions
         # TODO this is all wrong and does not take into 
         # account when regions change, because the keys will also change
         # with the given region
 
-        kms = cls.get_kms(**kargs)
-        region = cls.get_current_region()
+        kms = cls.get_kms(region=region, **kargs)
         
         aliases = kms.list_aliases()
         rsp = kms.list_keys()
@@ -419,23 +416,22 @@ class Commands(object):
             cls.DEFAULT_KMS_ARNS[region] = cls.KMS_ARNS[region][cls.DEFAULT_KMS_IDS[region]]
 
     @classmethod
-    def get_default_kms_key(cls, region, **kargs):
+    def get_default_kms_key(cls, region=None, **kargs):
         if cls.DEFAULT_KMS_IDS[region] is None:
-            cls.update_current_kms_defaults(**karg)
+            cls.update_current_kms_defaults(region=region, **karg)
         return {'alias':cls.DEFAULT_KMS_ALIASES[region], 
                 'keyarn':cls.DEFAULT_KMS_ARNS[region], 
                 'keyid':cls.DEFAULT_KMS_IDS[region]}
 
     @classmethod
-    def check_kms_key(cls, key_arn=None, key_id=None, **kargs):
+    def check_kms_key(cls, key_arn=None, key_id=None, region=None, **kargs):
         cls.LOGGER.debug("checking key: arn={}, id={}".format(key_arn, key_id))
-        region = cls.get_current_region()
         info = cls.get_kms_key(region=region, key_arn=key_arn, key_id=key_id, **kargs)
         return not info is None
 
     @classmethod
-    def recreate_kms_key(cls, tags=None, **kargs):
-        kms = cls.get_kms(**kargs)
+    def recreate_kms_key(cls, tags=None, region=None, **kargs):
+        kms = cls.get_kms(region=region, **kargs)
         cls.LOGGER.info("creating a new kms key".format(key_arn, key_id))
         # TODO add tags
         _kargs = {}
@@ -450,8 +446,7 @@ class Commands(object):
     
     @classmethod
     def create_kms_key(cls, region, tags=None, **kargs):
-        cls.set_region(region)
-        kms = cls.get_kms(**kargs)
+        kms = cls.get_kms(region=region, **kargs)
         cls.LOGGER.info("creating a new kms key".format(key_arn, key_id))
         # TODO add tags
         _kargs = {}
@@ -477,13 +472,13 @@ class Commands(object):
         dft_key_arn = None if region not in cls.DEFAULT_KMS_ARNS else cls.DEFAULT_KMS_ARNS[region]
         if key_id and dft_key_id and dft_key_id == key_id or \
            key_arn and dft_key_arn and dft_key_arn == key_arn:
-            return cls.get_default_kms_key(**kargs)
+            return cls.get_default_kms_key(region=region, **kargs)
 
         if key_id is None and key_arn is None:
-            return cls.get_default_kms_key(**kargs)
+            return cls.get_default_kms_key(region=region, **kargs)
         
         if region not in cls.KMS_KEYS:
-            cls.update_current_kms_defaults(region, **kargs)
+            cls.update_current_kms_defaults(region=region, **kargs)
         setit = False
         if key_id:
             all_keys = cls.KMS_KEYS
@@ -504,9 +499,9 @@ class Commands(object):
         return None
 
     @classmethod
-    def get_default_aws_key_id(cls, region, **kargs):
+    def get_default_aws_key_id(cls, region=None, **kargs):
         aliases = kms.list_aliases()
-        update_current_kms_defaults(region, **kargs)
+        update_current_kms_defaults(region=region, **kargs)
         kms = cls.get_kms(region=region, aws_access_key_id=aws_access_key_id, aws_secret_access_key=aws_secret_access_key)
         aliases = cls.DEFAULT_KMS_ALIASES[region]
         alias_name = cls.DEFAULT_KMS_ALIAS
@@ -532,12 +527,6 @@ class Commands(object):
     @classmethod
     def get_kms(cls, kms=None, region=None, aws_secret_access_key=None, aws_access_key_id=None, **kargs):
         need_update = region == cls.get_current_region()
-
-        if region:
-            cls.set_region(region)
-        else:
-            region = cls.get_current_region()
-
         if kms is None:
             cls.LOGGER.debug("Creating ec2 client for {} in {}".format(region, aws_access_key_id))
             aws_secret_access_key = aws_secret_access_key if aws_secret_access_key else cls.AWS_SECRET_ACCESS_KEY
@@ -547,7 +536,7 @@ class Commands(object):
                            aws_access_key_id=aws_access_key_id, 
                            aws_secret_access_key=aws_secret_access_key)
         if need_update:
-            cls.update_current_kms_defaults(**kargs)
+            cls.update_current_kms_defaults(region=region, **kargs)
 
         return kms
 
@@ -561,8 +550,8 @@ class Commands(object):
             raise
 
     @classmethod
-    def get_key_pair(cls, key_name, key_path, recreate=False, **kargs):
-        ec2 = cls.get_ec2(**kargs)
+    def get_key_pair(cls, key_name, key_path, recreate=False, region=None, **kargs):
+        ec2 = cls.get_ec2(region=region, **kargs)
         key_filename = os.path.join(key_path, key_name)
         if not os.path.exists(key_path):
             cls.LOGGER.debug("Creating key directory: {}".format(key_path))
@@ -658,9 +647,9 @@ class Commands(object):
     def create_instances(cls, key_name, max_count, image_id, instance_type, security_groups, 
                          tag_specifications, availability_zone, do_hibernate=False, device_name='/dev/sda1', 
                          delete_on_termination=True, volume_size=20, volumetype='gp2', encrypted=False,
-                         kms_key_id=None, kms_arn_id=None, create_volume=True, snapshotid=None, **kargs):
+                         kms_key_id=None, kms_arn_id=None, create_volume=True, snapshotid=None, region=None, **kargs):
         
-        ec2 = cls.get_ec2(**kargs)
+        ec2 = cls.get_ec2(region=region, **kargs)
         placement = None
 
         if availability_zone is not None:
@@ -686,7 +675,7 @@ class Commands(object):
                 'Ebs': ebs 
             }
             if ebs['Encrypted']:
-                info = cls.get_kms_key(region=cls.get_current_region(), kms_key_id=kms_key_id, key_arn=kms_key_arn, create=True, tags=tags, **kargs)
+                info = cls.get_kms_key(region=region, kms_key_id=kms_key_id, key_arn=kms_key_arn, create=True, tags=tags, **kargs)
                 keyid = None
                 if info is None:
                     keyid = info['keyid']
@@ -802,7 +791,7 @@ class Commands(object):
         key_info = cls.get_instance_key_info(instance_name, boto_config, region=region)
         key_name = key_info.get("key_name", None)
         key_filename = cls.get_key_pair(key_info['key_name'], key_info['key_path'], 
-                                        recreate=key_info['recreate'], **boto_config)
+                                        recreate=key_info['recreate'], region=region, **boto_config)
         # create security groups
         security_groups = cls.create_security_groups(instance_sg_configs, boto_config)
 
@@ -829,7 +818,7 @@ class Commands(object):
 
         
         instance_infos = cls.create_instances(key_name, max_count, image_id, instance_type, security_groups, 
-                         instance_tag_specifigations, availability_zone, **omit_kargs)
+                         instance_tag_specifigations, availability_zone, region=region, **omit_kargs)
         
         if instance_infos is None:
             raise Exception("Failed to create instance: {}".format(instance_name))

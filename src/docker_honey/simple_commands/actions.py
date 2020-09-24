@@ -60,6 +60,8 @@ def perform_instance_activities(instance_name:str, all_instances:dict, activity_
                                 activity: dict, all_actions:dict, ssh_reqs: dict,
                                 command_format_args, boto_config):
     # iterate over the actions and then execut them.
+    # FIXME multi threading required here
+    # need to redo how results are managed and returned
     steps = activity.get('steps')
     activity_results = {'instance_name':instance_name,
                         'activity_name': activity_name, 

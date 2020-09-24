@@ -16,7 +16,8 @@ from docker_honey.simple_commands.actions import *
 import json
 import os
 
-
+from multiprocessing import Process
+from threading import Thread
 from time import sleep
 import asyncio
 import argparse
@@ -135,7 +136,7 @@ def handle_dockerhp_config_update_and_start(instance_name, region: str, base_con
         dockerhp_config["sensor_id"] = "{}:|:{}:|:{}".format(region, ip, instance)
         dockerhp_config['global_hostname'] = ip
         config_bytes = json.dumps(dockerhp_config, sort_keys=True, indent=6).encode('ascii')
-        print(json.dumps(dockerhp_config, indent=6, sort_keys=True))
+        # print(json.dumps(dockerhp_config, indent=6, sort_keys=True))
         ssh.Commands.upload_bytes(config_bytes, "hp_config.json", host=ip, key_filename=key_filename, username=UBUNTU)
     
     activity_name = "startup" 
@@ -255,37 +256,66 @@ def deploy_dockerhp(args, boto_config, boto_secrets):
     max_count = args.dockerhp_count
     regions = args.dockerhp_regions
 
+    region_processes = {}
+    for region in regions:
+        args = (instance_name, boto_config, "setup", dc_command_format_args, region, max_count, base_config)
+        proc = Process(target=deploy_dockerhp_region, name=None, args=args)
+        proc.start()
+        region_processes[region] = proc
 
+    LOGGER.info("Waiting for {} processes to complete".format(len(region_processes)))
+    items = [(k, v) for k,v in region_processes.items()]
+    while len(items) > 0:
+        items = [(k, v) for k,v in region_processes.items() if v.is_alive()]
+        LOGGER.info("Waiting for {} out of {} processes to complete.".format(len(items), len(region_processes)))
+        if len(items) == 0:
+            break
+        sleep(60.0)
+    LOGGER.info("Completed: {} deployment processes".format(len(region_processes)))
+    return results
+
+def deploy_dockerhp_region(instance_name, boto_config, setup_activity_name, 
+                           command_format_args, region, max_count, base_config):
     rdc_ai = {}
     rdc_ipi = {}
     rdc_av = {}
     rdc_sr = {}
     results = {}
+    results = {}
+    threads = []
+    try:
+        dc_ai, dc_ipi, dc_av, dc_sr = build_instance_and_setup(instance_name, boto_config, setup_activity_name="setup", 
+                                                   command_format_args=command_format_args, region=region, 
+                                                   max_count=max_count)
+        rdc_ai[region] = dc_ai
+        rdc_ipi[region] = dc_ipi
+        rdc_av[region] = dc_av
+        rdc_sr[region] = dc_sr
+        if dc_ipi is None:
+            LOGGER.critical("Public IP information is None, meaning an error occurred somewhere, skipping: {}".format(region))
+            return
+        if dc_ai is None:
+            LOGGER.critical("Instance information is None, meaning an error occurred somewhere, skipping: {}".format(region))
+            return
+        
 
-    for region in regions:
-        rdc_ai[region] = None
-        rdc_ipi[region] = None
-        rdc_av[region] = None
-        rdc_sr[region] = None
-        try:
-            dc_ai, dc_ipi, dc_av, dc_sr = build_instance_and_setup(instance_name, boto_config, setup_activity_name="setup", 
-                                                       command_format_args=dc_command_format_args, region=region, 
-                                                       max_count=max_count)
-            rdc_ai[region] = dc_ai
-            rdc_ipi[region] = dc_ipi
-            rdc_av[region] = dc_av
-            rdc_sr[region] = dc_sr
-            if dc_ipi is None:
-                LOGGER.critical("Public IP information is None, meaning an error occurred somewhere, skipping: {}".format(region))
-                continue
-            if dc_ai is None:
-                LOGGER.critical("Instance information is None, meaning an error occurred somewhere, skipping: {}".format(region))
-                continue
-            results[region] = handle_dockerhp_config_update_and_start(instance_name, region, base_config, dc_ai, dc_ipi, dc_command_format_args, boto_config)
-        except:
-            LOGGER.critical("Exception occurred when trying to initialize instances in {}".format(region))
-            LOGGER.critical(traceback.format_exc())            
+        for iid in dc_ai:
+            args = (instance_name, region, base_config, {iid: dc_ai[iid]}, {iid:dc_ipi[iid]}, command_format_args, boto_config)
+            thread = Thread(target=handle_dockerhp_config_update_and_start, args=args)
+            thread.start()
+            threads.append(thread)
+    except:
+        LOGGER.critical("Exception occurred when trying to initialize instances in {}".format(region))
+        LOGGER.critical(traceback.format_exc())
 
+    LOGGER.info("Waiting for {} threads to complete for {}".format(len(threads), region))
+    while len(threads) > 0:
+        threads = [i for i in threads if i.is_alive()]
+        LOGGER.info("Waiting for {} threads to complete for {}".format(len(threads), region))
+        if len(threads) == 0:
+            break
+        sleep(60.0)
+    LOGGER.info("Completed: {} threads to complete for {}".format(len(threads), region))
     return results
 
 def deploy_collector(args, boto_config, boto_secrets):
