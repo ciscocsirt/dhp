@@ -274,7 +274,8 @@ def deploy_dockerhp(args, boto_config, boto_secrets):
             break
         sleep(60.0)
     LOGGER.info("Completed: {} deployment processes".format(len(region_processes)))
-    return results
+    # return results
+    return region_processes
 
 def deploy_dockerhp_region(instance_name, boto_config, setup_activity_name, 
                            command_format_args, region, max_count, base_config):
