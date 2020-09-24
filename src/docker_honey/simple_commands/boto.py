@@ -1152,14 +1152,15 @@ class Commands(object):
 
         ec2 = cls.get_ec2(**kargs)
         instance_ids = [i for i in instances]
-        try:
-            cls.LOGGER.debug("Attempting to terminate {} instances.".format(len(instance_ids)))
-            ec2.terminate_instances(DryRun=dry_run, InstanceIds=instance_ids)
-            cls.LOGGER.info("Terminated {} instances.".format(len(instance_ids)))
-        except KeyboardInterrupt:
-            cls.LOGGER.error("Failed to terminate {} instances.".format(len(instance_ids)))
-        except:
-            cls.LOGGER.error("{}".format(traceback.format_exc()))
+        if len(instance_ids) > 0:
+            try:
+                cls.LOGGER.debug("Attempting to terminate {} instances.".format(len(instance_ids)))
+                ec2.terminate_instances(DryRun=dry_run, InstanceIds=instance_ids)
+                cls.LOGGER.info("Terminated {} instances.".format(len(instance_ids)))
+            except KeyboardInterrupt:
+                cls.LOGGER.error("Failed to terminate {} instances.".format(len(instance_ids)))
+            except:
+                cls.LOGGER.error("{}".format(traceback.format_exc()))
 
         return instances
 

@@ -255,6 +255,8 @@ def deploy_dockerhp(args, boto_config, boto_secrets):
     dc_command_format_args = merge_dicts(dc_command_format_args, boto_secrets)
     max_count = args.dockerhp_count
     regions = args.dockerhp_regions
+    if "all" in regions:
+        regions = DCS
 
     region_processes = {}
     for region in regions:
@@ -458,7 +460,10 @@ if __name__ == "__main__":
         instance_down('collector', regions=[args.collector_region])
         do_down.append(['collector', [args.collector_region]])
     if args.dockerhp_down:
-        instance_down('dockerhp', regions=args.dockerhp_regions)
+        _regions = args.dockerhp_regions
+        if "all" in args.dockerhp_regions:
+            _regions = DCS
+        instance_down('dockerhp', regions=_regions)
         do_down.append(['dockerhp', args.dockerhp_regions])
     if args.mongodb_delete_vols:
         instance_down('mongodb_vols', regions=[args.mongodb_region])
