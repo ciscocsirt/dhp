@@ -56,11 +56,12 @@ class Notifier(object):
                 DATETIME: get_iso_time(),}
 
     def __init__(self, sensor_id=DEFAULT_SENSOR_NAME, sensor_ip=SENSOR_EXT_IP, 
-                 is_collector=False, log_level=logging.DEBUG, **kargs):
+                 is_collector=False, log_level=logging.DEBUG, supress_recon=True, **kargs):
         reset_logger_level(self.LOGGER, log_level)
         self.sensor_id = sensor_id
         self.sensor_ip = sensor_ip
         self.is_collector = is_collector
+        self.supress_recon = supress_recon
         self.server_secret_key = kargs.get('server_secret_key', None)
         
         self.slack_kargs = {}
@@ -690,7 +691,7 @@ class Notifier(object):
                 ]
                 payload['blocks'] = blocks
 
-            elif result['rtype'] == GET_VERSION:
+            elif result['rtype'] == GET_VERSION and not self.supress_recon:
                 kargs = result.copy()
                 kargs['dst_ip'] = kargs['dst_ip']
                 message = ("1. *Attempting recon of {sensor_id} ({sensor_ip}) for API: {api}* \n2. Source: *{src_ip}:{src_port}*\n3. Destination: *{dst_ip}:{dst_port}*".format(**kargs))
@@ -742,7 +743,7 @@ class Notifier(object):
                 message = ("1. **Attempting to create an image on **{sensor_id} ({sensor_ip})** for API: {api}** \n2. **Source:** {src_ip}:{src_port} \n3. **Destination:** {dst_ip}:{dst_port}\n4. **Image:** {image}\n5. **Command:** `{command}`{trigger_collector}".format(**kargs))
                 # self.LOGGER.info("Sending results {} to wbx_webhook".format(result['rtype']))
                 payload = {'markdown': message}
-            elif result['rtype'] == GET_VERSION:
+            elif result['rtype'] == GET_VERSION and not self.supress_recon:
                 kargs = result.copy()
                 kargs['dst_ip'] = self.sensor_ip if self.sensor_ip else kargs['dst_ip']
                 message = ("1. **Attempting recon for **{sensor_id} ({sensor_ip})** API:** {api}\n2. **Source:** {src_ip}:{src_port}\n3. **Destination:** {dst_ip}:{dst_port}".format(**kargs))
