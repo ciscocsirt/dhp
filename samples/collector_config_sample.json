@@ -3,6 +3,7 @@
     "global_hostname": null,
     "global_port": 5000,
     "certs_path": "./ssl/",
+    "supress_recon": true,
 
     "collector": false,
     "collector_host": "127.0.0.1",
