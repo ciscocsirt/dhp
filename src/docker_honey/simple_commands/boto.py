@@ -1063,10 +1063,11 @@ class Commands(object):
             public_ip = instance.get('PublicIpAddress', '')
             if tags is None:
                 continue
-
             d_tags = {tag.get('Key', ''):tag.get('Value', '') for tag in tags }
             matching = {k:v for k, v in target_tags.items() if k in d_tags and v == d_tags[k]}
-            if len(matching) == len(target_tags):
+            if len(matching) > 0 and len(matching) == len(target_tags):
+                # print(instance, tags)
+                # print(target_tags)
                 matching['public_ip'] = public_ip
                 relevant_instances[instance_id] = matching
         return relevant_instances
@@ -1085,7 +1086,7 @@ class Commands(object):
                 continue
             d_tags = {tag.get('Key', ''):tag.get('Value', '') for tag in tags }
             matching = {k:v for k, v in target_tags.items() if k in d_tags and v == d_tags[k]}
-            if len(matching) == len(target_tags):
+            if len(matching) > 0 and len(matching) == len(target_tags):
                 relevant_volumes[volume_id] = matching
         return relevant_volumes
 
@@ -1099,8 +1100,10 @@ class Commands(object):
             instance_ids.append(instance_id)
 
         instances = {}
-        instance_infos = cls.get_instance_infos(instance_ids=instance_ids, **kargs)
-        instances = {k['InstanceId']: k for k in instance_infos }
+        if len(instance_ids) > 0:
+            instance_infos = cls.get_instance_infos(instance_ids=instance_ids, **kargs)
+            instances = {k['InstanceId']: k for k in instance_infos }
+        
         if isinstance(target_tags, dict) and len(target_tags) > 0:
             if not 'ec2' in kargs:
                 kargs['ec2'] = ec2
@@ -1142,7 +1145,7 @@ class Commands(object):
         if instance_ids is None:
             instance_ids = []
 
-        if instance_id not in instance_ids:
+        if instance_id is not None and instance_id not in instance_ids:
             instance_ids.append(instance_id)
 
         if len(instance_ids) == 0 and (target_tags is None or len(target_tags) == 0):
@@ -1150,12 +1153,12 @@ class Commands(object):
             raise Exception("Must provide tags to filter out instances, or this will destroy the environment")
 
 
-        instances = cls.get_instances(instance_ids=instance_id, target_tags=target_tags, **kargs)
+        instances = cls.get_instances(instance_ids=instance_ids, target_tags=target_tags, **kargs)
         if len(instances) == 0 and len(instance_ids) == 0:
             return instances
-
         ec2 = cls.get_ec2(**kargs)
         instance_ids = [i for i in instances]
+        # print(target_tags, instance_ids)
         if len(instance_ids) > 0:
             try:
                 cls.LOGGER.debug("Attempting to terminate {} instances.".format(len(instance_ids)))
