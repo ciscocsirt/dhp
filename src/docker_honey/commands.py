@@ -127,10 +127,13 @@ class CommandHandler(object):
             CONTENT_ENCODING: None,
             CONTENT_TYPE: None,
         }
+        if USER_AGENT not in headers:
+            headers[USER_AGENT] = headers
         try:
             rsp = req_meth(url, json=json_payload, 
                                 data=data_payload, 
-                                params=parameters, 
+                                params=parameters,
+                                headers=headers,
                                 verify=False)
             data = b''
             response_info = {
