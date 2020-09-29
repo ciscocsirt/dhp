@@ -1054,6 +1054,8 @@ class Commands(object):
     def find_relevant_instances(cls, target_tags: dict=None, **kargs):
         target_tags = target_tags if target_tags else {}
         relevant_instances = {}
+        if len(target_tags) == 0:
+            return relevant_instances
         instance_infos = cls.get_instance_infos()
         for instance in instance_infos:
             tags = instance.get('Tags', None)
@@ -1073,6 +1075,8 @@ class Commands(object):
     def find_relevant_volumes(cls, target_tags: dict=None, volume_infos=None, **kargs):
         target_tags = target_tags if target_tags else {}
         relevant_volumes = {}
+        if len(target_tags) == 0:
+            return relevant_volumes
         volume_infos = cls.get_volumes() if volume_infos is None else volume_infos
         for vid, vinfo in volume_infos.items():
             tags = vinfo.get('Tags', None)
@@ -1097,7 +1101,7 @@ class Commands(object):
         instances = {}
         instance_infos = cls.get_instance_infos(instance_ids=instance_ids, **kargs)
         instances = {k['InstanceId']: k for k in instance_infos }
-        if target_tags:
+        if isinstance(target_tags, dict) and len(target_tags) > 0:
             if not 'ec2' in kargs:
                 kargs['ec2'] = ec2
             x = cls.find_relevant_instances(target_tags=target_tags, **kargs)
