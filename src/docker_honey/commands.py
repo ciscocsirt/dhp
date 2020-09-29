@@ -127,6 +127,8 @@ class CommandHandler(object):
             CONTENT_ENCODING: None,
             CONTENT_TYPE: None,
         }
+        if headers is None:
+            headers = {}
         if USER_AGENT not in headers:
             headers[USER_AGENT] = headers
         try:
