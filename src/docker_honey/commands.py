@@ -128,9 +128,9 @@ class CommandHandler(object):
             CONTENT_TYPE: None,
         }
         if headers is None:
-            headers = {}
-        if USER_AGENT not in headers:
-            headers[USER_AGENT] = headers
+            headers = {USER_AGENT_HEADER:user_agent}
+        if USER_AGENT_HEADER not in headers:
+            headers[USER_AGENT_HEADER] = headers
         try:
             rsp = req_meth(url, json=json_payload, 
                                 data=data_payload, 
@@ -145,6 +145,7 @@ class CommandHandler(object):
                 CONTENT: data,
                 HEADERS: list(rsp.headers.items()),
                 DATETIME: get_iso_time(),
+                "client_headers": headers,
             }
 
             if rsp.content and len(rsp.content) > 0:
