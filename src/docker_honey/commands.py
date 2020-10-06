@@ -130,7 +130,7 @@ class CommandHandler(object):
         if headers is None:
             headers = {USER_AGENT_HEADER:user_agent}
         if USER_AGENT_HEADER not in headers:
-            headers[USER_AGENT_HEADER] = headers
+            headers[USER_AGENT_HEADER] = user_agent
         try:
             rsp = req_meth(url, json=json_payload, 
                                 data=data_payload, 
