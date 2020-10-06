@@ -95,7 +95,7 @@ class CommandHandler(object):
             USER_AGENT: user_agent,
         }
 
-        return {REQUEST_PARAMETERS: request_parameters, COMMAND: COMMAND_PERFORM_WEBREQ}
+        return {REQUEST_PARAMETERS: request_parameters, COMMAND: REMOTE_WEB_REQUEST_CMD}
 
     @classmethod
     async def perform_web_request(cls, **kargs):
